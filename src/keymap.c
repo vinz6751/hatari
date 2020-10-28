@@ -27,7 +27,6 @@ const char Keymap_fileid[] = "Hatari keymap.c : " __DATE__ " " __TIME__;
 static Uint8 SdlSymToSdlScan[SDLK_LAST];
 #endif
 
-/* Table for loaded keys: */
 static int LoadedKeymap[KBD_MAX_SCANCODE][2];
 
 /* List of ST scan codes to NOT de-bounce when running in maximum speed */
@@ -575,22 +574,26 @@ static char Keymap_GetKeyPadScanCode(SDL_keysym* pKeySym)
 
 /**
  * Remap SDL Key to ST Scan code
+ * Receives the pressed key from SDL, and a buffer to filler with ST keyboard scan codes to fill.
+ * Returns the number of scan codes filled in the buffer. 
  */
-static char Keymap_RemapKeyToSTScanCode(SDL_keysym* pKeySym)
+static char Keymap_RemapKeyToSTScanCodes(SDL_keysym* pKeySym, uint8_t STScanCodes[])
 {
 	/* Check for keypad first so we can handle numlock */
 	if (ConfigureParams.Keyboard.nKeymapType != KEYMAP_LOADED)
 	{
 		if (pKeySym->sym >= SDLK_KP1 && pKeySym->sym <= SDLK_KP9)
 		{
-			return Keymap_GetKeyPadScanCode(pKeySym);
+			STScanCodes[0] = Keymap_GetKeyPadScanCode(pKeySym);
+			return 1;
 		}
 	}
 
 	/* Remap from PC scancodes? */
 	if (ConfigureParams.Keyboard.nKeymapType == KEYMAP_SCANCODE)
 	{
-		return Keymap_PcToStScanCode(pKeySym);
+			STScanCodes[0] = Keymap_PcToStScanCode(pKeySym);
+			return 1;
 	}
 
 	/* Use loaded keymap? */
@@ -600,12 +603,16 @@ static char Keymap_RemapKeyToSTScanCode(SDL_keysym* pKeySym)
 		for (i = 0; i < KBD_MAX_SCANCODE && LoadedKeymap[i][1] != 0; i++)
 		{
 			if (pKeySym->sym == (SDLKey)LoadedKeymap[i][0])
-				return LoadedKeymap[i][1];
+			{
+				STScanCodes[0] = LoadedKeymap[i][1];
+				return 1;
+			}
 		}
 	}
 
 	/* Use symbolic mapping */
-	return Keymap_SymbolicToStScanCode(pKeySym);
+	STScanCodes[0] = Keymap_SymbolicToStScanCode(pKeySym);
+	return STScanCodes[0] == -1 ? 0 : 1;
 }
 
 
@@ -613,7 +620,7 @@ static char Keymap_RemapKeyToSTScanCode(SDL_keysym* pKeySym)
 /**
  * Load keyboard remap file
  */
-void Keymap_LoadRemapFile(char *pszFileName)
+void Keymap_LoadRemapFile(const char *pszFileName)
 {
 	char szString[1024];
 	int STScanCode, PCKeyCode;
@@ -623,7 +630,7 @@ void Keymap_LoadRemapFile(char *pszFileName)
 	/* Initialize table with default values */
 	memset(LoadedKeymap, 0, sizeof(LoadedKeymap));
 
-	if (!*pszFileName)
+	if (pszFileName[0] == '\0')
 		return;
 
 	/* Attempt to load file */
@@ -645,52 +652,56 @@ void Keymap_LoadRemapFile(char *pszFileName)
 		/* Read line from file */
 		if (fgets(szString, sizeof(szString), in) == NULL)
 			break;
+
 		/* Remove white-space from start of line */
 		Str_Trim(szString);
-		if (strlen(szString)>0)
+		/* Ignore empty line */	
+		if (strlen(szString) == 0)
+			continue;
+		/* Ignore comment */
+		if (szString[0] == ';' || szString[0] == '#')
+			continue;
+
+		/* Cut out the values */
+		char *p;
+		p = strtok(szString, ",");
+		if (!p)
+			continue;
+		Str_Trim(szString);
+		
+		PCKeyCode = atoi(szString);    /* Direct key code? */
+		if (PCKeyCode < 10)
 		{
-			char *p;
-			/* Is a comment? */
-			if (szString[0] == ';' || szString[0] == '#')
-				continue;
-			/* Cut out the values */
-			p = strtok(szString, ",");
-			if (!p)
-				continue;
-			Str_Trim(szString);
-			PCKeyCode = atoi(szString);    /* Direct key code? */
-			if (PCKeyCode < 10)
-			{
-				/* If it's not a valid number >= 10, then
-				 * assume we've got a symbolic key name
-				 */
-				int offset = 0;
-				/* quoted character (e.g. comment line char)? */
-				if (*szString == '\\' && strlen(szString) == 2)
-					offset = 1;
-				PCKeyCode = Keymap_GetKeyFromName(szString+offset);
-			}
-			p = strtok(NULL, "\n");
-			if (!p)
-				continue;
-			STScanCode = atoi(p);
-			/* Store into remap table, check both value within range */
-			if (STScanCode > 0 && STScanCode <= KBD_MAX_SCANCODE
-			    && PCKeyCode >= 8)
-			{
-				LOG_TRACE(TRACE_KEYMAP,
-				          "keymap from file: sym=%i --> scan=%i\n",
-				          PCKeyCode, STScanCode);
+			/* If it's not a valid number >= 10, then
+			 * assume we've got a symbolic key name
+			 */
+			int offset = 0;
+			/* Quoted character (e.g. comment line char)? */
+			if (szString[0] == '\\' && strlen(szString) == 2)
+				offset = 1;
+			PCKeyCode = Keymap_GetKeyFromName(szString+offset);
+		}
+		p = strtok(NULL, "\n");
+		if (!p)
+			continue;
+		STScanCode = atoi(p);
+
+		/* Store into remap table, check both value within range */
+		if (STScanCode > 0 && STScanCode <= KBD_MAX_SCANCODE
+		    && PCKeyCode >= 8)
+		{
+			LOG_TRACE(TRACE_KEYMAP,
+			          "keymap from file: sym=%i --> scan=%i\n",
+			          PCKeyCode, STScanCode);
 				LoadedKeymap[idx][0] = PCKeyCode;
 				LoadedKeymap[idx][1] = STScanCode;
 				idx += 1;
-			}
-			else
-			{
-				Log_Printf(LOG_WARN, "Could not parse keymap file:"
+		}
+		else
+		{
+			Log_Printf(LOG_WARN, "Could not parse keymap file:"
 				           " '%s' (%d >= 8), '%s' (0 > %d <= %d)\n",
-					   szString, PCKeyCode, p, STScanCode, KBD_MAX_SCANCODE);
-			}
+				   szString, PCKeyCode, p, STScanCode, KBD_MAX_SCANCODE);
 		}
 	}
 
@@ -770,7 +781,8 @@ void Keymap_DebounceAllKeys(void)
  */
 void Keymap_KeyDown(SDL_keysym *sdlkey)
 {
-	uint8_t STScanCode;
+	uint8_t STScanCodes[3];
+	int STScanCodesLength;
 	int symkey = sdlkey->sym;
 	int modkey = sdlkey->mod;
 
@@ -793,15 +805,20 @@ void Keymap_KeyDown(SDL_keysym *sdlkey)
 		return;
 	}
 
-	STScanCode = Keymap_RemapKeyToSTScanCode(sdlkey);
-	LOG_TRACE(TRACE_KEYMAP, "key map: sym=0x%x to ST-scan=0x%02x\n", symkey, STScanCode);
-	if (STScanCode != (uint8_t)-1)
+	STScanCodesLength = Keymap_RemapKeyToSTScanCodes(sdlkey, STScanCodes);
+	LOG_TRACE(TRACE_KEYMAP, "key map: sym=0x%x to ST-scan=0x%02x\n", symkey, STScanCodes[0]);
+	if (STScanCodesLength > 0)
 	{
-		if (!Keyboard.KeyStates[STScanCode])
+		int iScanCode;
+		for (iScanCode = 0; iScanCode < STScanCodesLength ; iScanCode++) 
 		{
-			/* Set down */
-			Keyboard.KeyStates[STScanCode] = true;
-			IKBD_PressSTKey(STScanCode, true);
+			uint8_t scanCode = STScanCodes[iScanCode];
+			if (!Keyboard.KeyStates[scanCode])
+			{
+				/* Set down */
+				Keyboard.KeyStates[scanCode] = true;
+				IKBD_PressSTKey(scanCode, true);
+			}
 		}
 	}
 }
@@ -813,7 +830,8 @@ void Keymap_KeyDown(SDL_keysym *sdlkey)
  */
 void Keymap_KeyUp(SDL_keysym *sdlkey)
 {
-	uint8_t STScanCode;
+	uint8_t STScanCodes[3];
+	int STScanCodesLength;
 	int symkey = sdlkey->sym;
 	int modkey = sdlkey->mod;
 
@@ -837,15 +855,19 @@ void Keymap_KeyUp(SDL_keysym *sdlkey)
 		return;
 	}
 
-	STScanCode = Keymap_RemapKeyToSTScanCode(sdlkey);
+	STScanCodesLength = Keymap_RemapKeyToSTScanCodes(sdlkey, STScanCodes);
 	/* Release key (only if was pressed) */
-	if (STScanCode != (uint8_t)-1)
+	if (STScanCodesLength > 0)
 	{
-		if (Keyboard.KeyStates[STScanCode])
+		int iScanCode;
+		for (iScanCode = 0; iScanCode < STScanCodesLength ; iScanCode++) 
 		{
-			IKBD_PressSTKey(STScanCode, false);
-			Keyboard.KeyStates[STScanCode] = false;
-		}
+			uint8_t scanCode = STScanCodes[iScanCode];
+			
+			/* Set up */
+			Keyboard.KeyStates[scanCode] = false;
+			IKBD_PressSTKey(scanCode, false);
+		}	
 	}
 }
 
