@@ -25,6 +25,7 @@
 # Notes:
 # * All scan codes must be in hexadecimal.
 # * The parser is not very smart so don't add spaces etc.
+# * Make the most demanding specification appear first.
 
 04,1e
 # ,
