@@ -11,7 +11,7 @@
   We need to intercept the initial Line-A call (which we force into the TOS on
   boot-up) and also the init calls to the VDI.
 */
-const char VDI_fileid[] = "Hatari vdi.c : " __DATE__ " " __TIME__;
+const char VDI_fileid[] = "Hatari vdi.c";
 
 #include "main.h"
 #include "configuration.h"
@@ -27,6 +27,7 @@ const char VDI_fileid[] = "Hatari vdi.c : " __DATE__ " " __TIME__;
 #include "vdi.h"
 #include "video.h"
 
+/* #undef ENABLE_TRACING */
 #define DEBUG 0
 
 Uint32 VDI_OldPC;                  /* When call Trap#2, store off PC */
@@ -42,23 +43,28 @@ int VDIPlanes = 4;
 static Uint32 LineABase;           /* Line-A structure */
 static Uint32 FontBase;            /* Font base, used for 16-pixel high font */
 
-/* Last VDI opcode & vectors */
-static Uint16 VDIOpCode;
-static Uint32 VDIControl;
-static Uint32 VDIIntin;
-static Uint32 VDIPtsin;
-static Uint32 VDIIntout;
-static Uint32 VDIPtsout;
-#if ENABLE_TRACING
-/* Last AES opcode & vectors */
-static Uint32 AESControl;
-static Uint32 AESGlobal;
-static Uint32 AESIntin;
-static Uint32 AESIntout;
-static Uint32 AESAddrin;
-static Uint32 AESAddrout;
-static Uint16 AESOpCode;
-#endif
+/* Last VDI opcode, vectors & their contents (for "info vdi") */
+static struct {
+	Uint32 Control;
+	Uint32 Intin;
+	Uint32 Ptsin;
+	Uint32 Intout;
+	Uint32 Ptsout;
+	/* TODO: add arrays for storing above vector contents */
+	Uint16 OpCode;
+} VDI;
+
+/* Last AES opcode, vectors & their contents (for "info aes") */
+static struct {
+	Uint32 Control;
+	Uint32 Global;
+	Uint32 Intin;
+	Uint32 Intout;
+	Uint32 Addrin;
+	Uint32 Addrout;
+	/* TODO: add arrays for storing above vector contents */
+	Uint16 OpCode;
+} AES;
 
 
 /*-----------------------------------------------------------------------*/
@@ -155,25 +161,7 @@ void VDI_SetResolution(int GEMColor, int WidthRequest, int HeightRequest)
 }
 
 
-#if ENABLE_TRACING
-
 /*-----------------------------------------------------------------------*/
-
-/* AES opcodes which have string args */
-static const struct {
-	int code;	/* AES opcode */
-	int count;	/* number of char * args _first_ in addrin[] */
-} AESStrings[] = {
-	{ 0x0D, 1 },	/* appl_find() */
-	{ 0x12, 1 },	/* appl_search() */
-	{ 0x23, 1 },	/* menu_register() */
-	{ 0x34, 1 },	/* form_alert() */
-	{ 0x51, 1 },	/* scrp_write() */
-	{ 0x5A, 2 },	/* fsel_input() */
-	{ 0x5B, 3 },	/* fsel_exinput() */
-	{ 0x6E, 1 },	/* rsrc_load() */
-	{ 0x7C, 1 }	/* shell_find() */
-};
 
 /* AES opcode -> function name mapping */
 static const char* AESName_10[] = {
@@ -312,13 +300,28 @@ static const char* AES_Opcode2Name(Uint16 opcode)
 		return "???";
 }
 
+#if ENABLE_TRACING
 /**
  * Output AES call info, including some of args
  */
 static void AES_OpcodeInfo(FILE *fp, Uint16 opcode)
 {
+	/* AES opcodes which have string args */
+	static const struct {
+		int code;	/* AES opcode */
+		int count;	/* number of char * args _first_ in addrin[] */
+	} strings[] = {
+		{ 0x0D, 1 },	/* appl_find() */
+		{ 0x12, 1 },	/* appl_search() */
+		{ 0x23, 1 },	/* menu_register() */
+		{ 0x34, 1 },	/* form_alert() */
+		{ 0x51, 1 },	/* scrp_write() */
+		{ 0x5A, 2 },	/* fsel_input() */
+		{ 0x5B, 3 },	/* fsel_exinput() */
+		{ 0x6E, 1 },	/* rsrc_load() */
+		{ 0x7C, 1 }	/* shell_find() */
+	};
 	int code = opcode - 10;
-	fprintf(fp, "AES call %3hd ", opcode);
 	if (code >= 0 && code < ARRAY_SIZE(AESName_10) && AESName_10[code])
 	{
 		bool first = true;
@@ -328,17 +331,17 @@ static void AES_OpcodeInfo(FILE *fp, Uint16 opcode)
 
 		items = 0;
 		/* there are so few of these that linear search is fine */
-		for (i = 0; i < ARRAY_SIZE(AESStrings); i++)
+		for (i = 0; i < ARRAY_SIZE(strings); i++)
 		{
 			/* something that can be shown? */
-			if (AESStrings[i].code == opcode)
+			if (strings[i].code == opcode)
 			{
-				items = AESStrings[i].count;
+				items = strings[i].count;
 				break;
 			}
 		}
 		/* addrin array size in longs enough for items? */
-		if (items > 0 && items <= STMemory_ReadWord(AESControl+SIZE_WORD*3))
+		if (items > 0 && items <= STMemory_ReadWord(AES.Control+SIZE_WORD*3))
 		{
 			const char *str;
 			fputs("addrin: ", fp);
@@ -348,12 +351,12 @@ static void AES_OpcodeInfo(FILE *fp, Uint16 opcode)
 					first = false;
 				else
 					fputs(", ", fp);
-				str = (const char *)STMemory_STAddrToPointer(STMemory_ReadLong(AESAddrin+SIZE_LONG*i));
+				str = (const char *)STMemory_STAddrToPointer(STMemory_ReadLong(AES.Addrin+SIZE_LONG*i));
 				fprintf(fp, "\"%s\"", str);
 			}
 		}
 		/* intin array size in words */
-		items = STMemory_ReadWord(AESControl+SIZE_WORD*1);
+		items = STMemory_ReadWord(AES.Control+SIZE_WORD*1);
 		if (items > 0)
 		{
 			if (!first)
@@ -368,15 +371,15 @@ static void AES_OpcodeInfo(FILE *fp, Uint16 opcode)
 					first = false;
 				else
 					fputs(",", fp);
-				fprintf(fp, "0x%x", STMemory_ReadWord(AESIntin+SIZE_WORD*i));
+				fprintf(fp, "0x%x", STMemory_ReadWord(AES.Intin+SIZE_WORD*i));
 			}
 		}
 		fputs(")\n", fp);
 	}
 	else
 		fputs("???\n", fp);
-	fflush(fp);
 }
+#endif
 
 /**
  * Verify given VDI table pointer and store variables from
@@ -390,13 +393,14 @@ static bool AES_StoreVars(Uint32 TablePtr)
 		return false;
 	}
 	/* store values for debugger "info aes" command */
-	AESControl = STMemory_ReadLong(TablePtr);
-	AESGlobal  = STMemory_ReadLong(TablePtr+4);
-	AESIntin   = STMemory_ReadLong(TablePtr+8);
-	AESIntout  = STMemory_ReadLong(TablePtr+12);
-	AESAddrin  = STMemory_ReadLong(TablePtr+16);
-	AESAddrout = STMemory_ReadLong(TablePtr+20);
-	AESOpCode  = STMemory_ReadWord(AESControl);
+	AES.Control = STMemory_ReadLong(TablePtr);
+	AES.Global  = STMemory_ReadLong(TablePtr+4);
+	AES.Intin   = STMemory_ReadLong(TablePtr+8);
+	AES.Intout  = STMemory_ReadLong(TablePtr+12);
+	AES.Addrin  = STMemory_ReadLong(TablePtr+16);
+	AES.Addrout = STMemory_ReadLong(TablePtr+20);
+	/* TODO: copy/convert also above array contents to AES struct */
+	AES.OpCode  = STMemory_ReadWord(AES.Control);
 	return true;
 }
 
@@ -420,44 +424,57 @@ void AES_Info(FILE *fp, Uint32 bShowOpcodes)
 	opcode = Vars_GetAesOpcode();
 	if (opcode != INVALID_OPCODE)
 	{
+		/* we're on AES trap -> store new values */
 		if (!AES_StoreVars(Regs[REG_D1]))
 			return;
 	}
 	else
 	{
+#if !ENABLE_TRACING
+		fputs("Hatari build with ENABLE_TRACING required to retain AES call info!\n", fp);
+		return;
+#else
 		if (!bVdiAesIntercept)
 		{
 			fputs("VDI/AES interception isn't enabled!\n", fp);
 			return;
 		}
-		if (!AESControl)
+		if (!AES.Control)
 		{
-			fputs("No traced AES calls!\n", fp);
+			fputs("No traced AES calls -> no AES call info!\n", fp);
 			return;
 		}
-		opcode = STMemory_ReadWord(AESControl);
+		opcode = STMemory_ReadWord(AES.Control);
+		if (opcode != AES.OpCode)
+		{
+			fputs("AES parameter block contents changed since last call!\n", fp);
+			return;
+		}
+#endif
 	}
-	if (opcode != AESOpCode)
-	{
-		fputs("AES parameter block contents changed since last call!\n", fp);
-		return;
-	}
-
+	/* TODO: replace use of STMemory calls with getting the data
+	 * from already converted AES.* array members
+	 */
 	fputs("Latest AES Parameter block:\n", fp);
-	fprintf(fp, "- Opcode: %3hd (%s)\n",
+#if ENABLE_TRACING
+	fprintf(fp, "- Opcode:  0x%02hX ", opcode);
+	AES_OpcodeInfo(fp, opcode);
+#else
+	fprintf(fp, "- Opcode:  0x%02hX (%s)\n",
 		opcode, AES_Opcode2Name(opcode));
-
-	fprintf(fp, "- Control: %#8x\n", AESControl);
-	fprintf(fp, "- Global:  %#8x, %d bytes\n",
-		AESGlobal, 2+2+2+4+4+4+4+4+4);
-	fprintf(fp, "- Intin:   %#8x, %d words\n",
-		AESIntin, STMemory_ReadWord(AESControl+2*1));
-	fprintf(fp, "- Intout:  %#8x, %d words\n",
-		AESIntout, STMemory_ReadWord(AESControl+2*2));
-	fprintf(fp, "- Addrin:  %#8x, %d longs\n",
-		AESAddrin, STMemory_ReadWord(AESControl+2*3));
-	fprintf(fp, "- Addrout: %#8x, %d longs\n",
-		AESAddrout, STMemory_ReadWord(AESControl+2*4));
+#endif
+	fprintf(fp, "- Control: 0x%08x\n", AES.Control);
+	fprintf(fp, "- Global:  0x%08x, %d bytes\n",
+		AES.Global, 2+2+2+4+4+4+4+4+4);
+	fprintf(fp, "- Intin:   0x%08x, %d words\n",
+		AES.Intin, STMemory_ReadWord(AES.Control+2*1));
+	fprintf(fp, "- Intout:  0x%08x, %d words\n",
+		AES.Intout, STMemory_ReadWord(AES.Control+2*2));
+	fprintf(fp, "- Addrin:  0x%08x, %d longs\n",
+		AES.Addrin, STMemory_ReadWord(AES.Control+2*3));
+	fprintf(fp, "- Addrout: 0x%08x, %d longs\n",
+		AES.Addrout, STMemory_ReadWord(AES.Control+2*4));
+	fflush(fp);
 }
 
 
@@ -780,12 +797,13 @@ static bool VDI_StoreVars(Uint32 TablePtr)
 	/* store values for extended VDI resolution handling
 	 * and debugger "info vdi" command
 	 */
-	VDIControl = STMemory_ReadLong(TablePtr);
-	VDIIntin   = STMemory_ReadLong(TablePtr+4);
-	VDIPtsin   = STMemory_ReadLong(TablePtr+8);
-	VDIIntout  = STMemory_ReadLong(TablePtr+12);
-	VDIPtsout  = STMemory_ReadLong(TablePtr+16);
-	VDIOpCode  = STMemory_ReadWord(VDIControl);
+	VDI.Control = STMemory_ReadLong(TablePtr);
+	VDI.Intin   = STMemory_ReadLong(TablePtr+4);
+	VDI.Ptsin   = STMemory_ReadLong(TablePtr+8);
+	VDI.Intout  = STMemory_ReadLong(TablePtr+12);
+	VDI.Ptsout  = STMemory_ReadLong(TablePtr+16);
+	/* TODO: copy/convert also above array contents to AES struct */
+	VDI.OpCode  = STMemory_ReadWord(VDI.Control);
 	return true;
 }
 
@@ -795,9 +813,8 @@ static bool VDI_StoreVars(Uint32 TablePtr)
  */
 void VDI_Info(FILE *fp, Uint32 bShowOpcodes)
 {
-	Uint16 opcode, subcode, nintin;
+	Uint16 opcode;
 	const char *extra_info;
-	const char *name;
 
 	if (bShowOpcodes)
 	{
@@ -811,65 +828,66 @@ void VDI_Info(FILE *fp, Uint32 bShowOpcodes)
 			}
 			fprintf(fp, "%02x %-16s",
 				opcode, VDI_Opcode2Name(opcode, 0, 0, &extra_info));
-			if (++opcode % 4 == 0) fputs("\n", fp);
+			if (++opcode % 4 == 0)
+				fputs("\n", fp);
 		}
+		if (opcode % 4)
+			fputs("\n", fp);
 		return;
 	}
 	opcode = Vars_GetVdiOpcode();
 	if (opcode != INVALID_OPCODE)
 	{
+		/* we're on VDI trap -> store new values */
 		if (!VDI_StoreVars(Regs[REG_D1]))
 			return;
 	}
 	else
 	{
+#if !ENABLE_TRACING
+		fputs("Hatari build with ENABLE_TRACING required to retain VDI call info!\n", fp);
+		return;
+#else
 		if (!bVdiAesIntercept)
 		{
 			fputs("VDI/AES interception isn't enabled!\n", fp);
 			return;
 		}
-		if (!VDIControl)
+		if (!VDI.Control)
 		{
-			fputs("No traced VDI calls!\n", fp);
+			fputs("No traced VDI calls -> no VDI call info!\n", fp);
 			return;
 		}
-		opcode = STMemory_ReadWord(VDIControl);
+		opcode = STMemory_ReadWord(VDI.Control);
+		if (opcode != VDI.OpCode)
+		{
+			fputs("VDI parameter block contents changed since last call!\n", fp);
+			return;
+		}
+#endif
 	}
-	if (opcode != VDIOpCode)
-	{
-		fputs("VDI parameter block contents changed since last call!\n", fp);
-		return;
-	}
-
+	/* TODO: replace use of STMemory calls with getting the data
+	 * from already converted VDI.* array members
+	 */
 	fputs("Latest VDI Parameter block:\n", fp);
-	subcode = STMemory_ReadWord(VDIControl+2*5);
-	nintin = STMemory_ReadWord(VDIControl+2*3);
-	name = VDI_Opcode2Name(opcode, subcode, nintin, &extra_info);
-	fprintf(fp, "- Opcode/Subcode: %hd/%hd (%s%s%s)\n",
+	Uint16 subcode = STMemory_ReadWord(VDI.Control+2*5);
+	Uint16 nintin = STMemory_ReadWord(VDI.Control+2*3);
+	const char *name = VDI_Opcode2Name(opcode, subcode, nintin, &extra_info);
+	fprintf(fp, "- Opcode/Subcode: 0x%02hX/0x%02hX (%s%s%s)\n",
 		opcode, subcode, name, extra_info ? ", " : "", extra_info ? extra_info : "");
 	fprintf(fp, "- Device handle: %d\n",
-		STMemory_ReadWord(VDIControl+2*6));
-	fprintf(fp, "- Control: %#8x\n", VDIControl);
-	fprintf(fp, "- Ptsin:   %#8x, %d coordinate word pairs\n",
-		VDIPtsin, STMemory_ReadWord(VDIControl+2*1));
-	fprintf(fp, "- Ptsout:  %#8x, %d coordinate word pairs\n",
-		VDIPtsout, STMemory_ReadWord(VDIControl+2*2));
-	fprintf(fp, "- Intin:   %#8x, %d words\n",
-		VDIIntin, STMemory_ReadWord(VDIControl+2*3));
-	fprintf(fp, "- Intout:  %#8x, %d words\n",
-		VDIIntout, STMemory_ReadWord(VDIControl+2*4));
+		STMemory_ReadWord(VDI.Control+2*6));
+	fprintf(fp, "- Control: 0x%08x\n", VDI.Control);
+	fprintf(fp, "- Ptsin:   0x%08x, %d coordinate word pairs\n",
+		VDI.Ptsin, STMemory_ReadWord(VDI.Control+2*1));
+	fprintf(fp, "- Ptsout:  0x%08x, %d coordinate word pairs\n",
+		VDI.Ptsout, STMemory_ReadWord(VDI.Control+2*2));
+	fprintf(fp, "- Intin:   0x%08x, %d words\n",
+		VDI.Intin, STMemory_ReadWord(VDI.Control+2*3));
+	fprintf(fp, "- Intout:  0x%08x, %d words\n",
+		VDI.Intout, STMemory_ReadWord(VDI.Control+2*4));
+	fflush(fp);
 }
-
-#else /* !ENABLE_TRACING */
-void AES_Info(FILE *fp, Uint32 bShowOpcodes)
-{
-	fputs("Hatari isn't configured with ENABLE_TRACING\n", fp);
-}
-void VDI_Info(FILE *fp, Uint32 bShowOpcodes)
-{
-	fputs("Hatari isn't configured with ENABLE_TRACING\n", fp);
-}
-#endif /* !ENABLE_TRACING */
 
 
 /*-----------------------------------------------------------------------*/
@@ -895,9 +913,9 @@ static inline bool VDI_isWorkstationOpen(Uint16 opcode)
 bool VDI_AES_Entry(void)
 {
 	Uint16 call = Regs[REG_D0];
+#if ENABLE_TRACING
 	Uint32 TablePtr = Regs[REG_D1];
 
-#if ENABLE_TRACING
 	/* AES call? */
 	if (call == 0xC8)
 	{
@@ -905,7 +923,9 @@ bool VDI_AES_Entry(void)
 			return false;
 		if (LOG_TRACE_LEVEL(TRACE_OS_AES))
 		{
-			AES_OpcodeInfo(TraceFile, AESOpCode);
+			fprintf(TraceFile, "AES 0x%02hX ", AES.OpCode);
+			AES_OpcodeInfo(TraceFile, AES.OpCode);
+			fflush(TraceFile);
 		}
 		/* using same special opcode trick doesn't work for
 		 * both VDI & AES as AES functions can be called
@@ -913,25 +933,25 @@ bool VDI_AES_Entry(void)
 		 */
 		return false;
 	}
-#endif
-
 	/* VDI call? */
 	if (call == 0x73)
 	{
+		Uint16 subcode, nintin;
+		const char *extra_info, *name;
+
 		if (!VDI_StoreVars(TablePtr))
 			return false;
-#if ENABLE_TRACING
-		{
-		Uint16 subcode = STMemory_ReadWord(VDIControl+2*5);
-		Uint16 nintin = STMemory_ReadWord(VDIControl+2*3);
-		const char *extra_info;
-		const char *name = VDI_Opcode2Name(VDIOpCode, subcode, nintin, &extra_info);
-		LOG_TRACE(TRACE_OS_VDI, "VDI call %3hd/%3hd (%s%s%s)\n",
-			  VDIOpCode, subcode, name, extra_info ? ", " : "", extra_info ? extra_info : "");
-		}
+		subcode = STMemory_ReadWord(VDI.Control+2*5);
+		nintin = STMemory_ReadWord(VDI.Control+2*3);
+		name = VDI_Opcode2Name(VDI.OpCode, subcode, nintin, &extra_info);
+		LOG_TRACE(TRACE_OS_VDI, "VDI 0x%02hX/0x%02hX (%s%s%s)\n",
+			  VDI.OpCode, subcode, name, extra_info ? ", " : "", extra_info ? extra_info : "");
+	}
 #endif
+	if (call == 0x73)
+	{
 		/* Only workstation open needs to be handled at trap return */
-		return bUseVDIRes && VDI_isWorkstationOpen(VDIOpCode);
+		return bUseVDIRes && VDI_isWorkstationOpen(VDI.OpCode);
 	}
 
 	LOG_TRACE((TRACE_OS_VDI|TRACE_OS_AES), "Trap #2 with D0 = 0x%hX\n", call);
@@ -1019,14 +1039,14 @@ void VDI_LineA(Uint32 linea, Uint32 fontbase)
 void VDI_Complete(void)
 {
 	/* right opcode? */
-	assert(VDI_isWorkstationOpen(VDIOpCode));
+	assert(VDI_isWorkstationOpen(VDI.OpCode));
 	/* not changed between entry and completion? */
-	assert(VDIOpCode == STMemory_ReadWord(VDIControl));
+	assert(VDI.OpCode == STMemory_ReadWord(VDI.Control));
 
-	STMemory_WriteWord(VDIIntout, VDIWidth-1);           /* IntOut[0] Width-1 */
-	STMemory_WriteWord(VDIIntout+1*2, VDIHeight-1);      /* IntOut[1] Height-1 */
-	STMemory_WriteWord(VDIIntout+13*2, 1 << VDIPlanes);  /* IntOut[13] #colors */
-	STMemory_WriteWord(VDIIntout+39*2, 512);             /* IntOut[39] #available colors */
+	STMemory_WriteWord(VDI.Intout, VDIWidth-1);           /* IntOut[0] Width-1 */
+	STMemory_WriteWord(VDI.Intout+1*2, VDIHeight-1);      /* IntOut[1] Height-1 */
+	STMemory_WriteWord(VDI.Intout+13*2, 1 << VDIPlanes);  /* IntOut[13] #colors */
+	STMemory_WriteWord(VDI.Intout+39*2, 512);             /* IntOut[39] #available colors */
 
 	STMemory_WriteWord(LineABase-0x15a*2, VDIWidth-1);   /* WKXRez */
 	STMemory_WriteWord(LineABase-0x159*2, VDIHeight-1);  /* WKYRez */

@@ -12,7 +12,7 @@ Following features are deprecated and will be removed in a future release:
 - SDL 2.x "bUseSdlRenderer" config and "GPU scaling" GUI options
   (after HW support for SDL2 is available widely enough)
 - The old UAE CPU core (i.e. the new WinUAE CPU core should be used instead)
-- Python 2 support (Python 2 is end of life in 2020, use Python 3 instead)
+- Python v2 support in Python scripts (Python 2 was end of life in 2020)
 - The "external" disassembler (i.e. use "--disasm uae" instead)
 - Hatari XBios(255) API enabled with the "--bios-intercept" option
   (i.e. use "--natfeats" & "--cmd-fifo" options and "hconsole" instead)
@@ -43,6 +43,7 @@ Emulation:
 - Sound:
   - Add a better filter for downsampling the internal 250 kHz signal, should
     give better results when the YM2149 outputs high frequency sounds
+  - Fix microwire mask shifting when CPU runs > 8 MHz
 - MFP :
   - Rewrite MFP code to handle several MFP objects and add support
     for the TT's 2nd MFP (not all TT's MFP signals are emulated yet)
@@ -51,19 +52,38 @@ Emulation:
   - Large rewrite of the blitter's core, improving cycle accuracy and
     handling the complex cases where xcount=1 and nfsr=1. Code is slighlty
     smaller and closer to the logic of the real hardware
-  - Handle restart in non HOG mode when the CPU uses a RMW instruction (eg TAS)
-  - Improve access to memory regions that would generate a bus error for the CPU
+  - Handle restart in non HOG mode when the CPU uses a RMW instruction
+    (eg TAS)
+  - Improve access to memory regions that would generate a bus error
+    for the CPU
 - Emulate additional RTC/NVRAM registers
+- megaSTE should start at 8 MHz, not 16 MHz
 
 Emulator:
-- Memory snapshot version increase due to FDC changes
-  (i.e. old snapshots won't work with new version)
-- Use floppy track's size in bytes to detect DD/HD/ED
-  (instead of counting sectors)
-- Add --lilo debug option for more convenient m68k Linux loading
+- Miscellaneous:
+  - Fix: freeze at Hatari exit and RS-232 device file changes,
+    when device file(s) are FIFO(s)
+  - Fix: when autostarting programs without pre-existing INF file,
+    enable blitter also with EmuTOS
+  - Use floppy track's size in bytes to detect DD/HD/ED
+    (instead of counting sectors)
+  - Add --lilo debug option for more convenient m68k Linux loading
+- Config file handling:
   - Support config file values with '=' in them
-- Fix: run-time IDE byte swap change requires IDE re-init
-- Fix: TOS booting from A: although SCSI drive was enabled
+  - Skip reading global config file if HATARI_TEST environment
+    variable is set
+- Memory handling:
+  - Memory snapshot version increase due to FDC changes
+    (i.e. old snapshots won't work with new version)
+  - Accept 10MB as valid ST-RAM amount (max on real MegaSTE/TT machines)
+    and correct invalid Falcon ST-RAM amounts
+  - Fix: 24-bit address mode change while emulation is running
+    (triggered e.g. when TT-RAM is enabled for TT)
+- HD images:
+  - Fix: run-time IDE byte swap change requires IDE re-init
+  - Fix: TOS booting from A: although SCSI drive was enabled
+  - Support read-only HD image files, and show error dialogs
+    for image file open/lock issues
 - GEMDOS HD emulation:
   - Support FASTLOAD program flag with GEMDOS HD
   - GEMDOS HD emulation cartridge assembly functionality is moved almost
@@ -73,9 +93,9 @@ Emulator:
     demand and give warning if its entries need to be re-cycled
     (= cache max size is reached)
   - Invalid DTA in Fsnext() return -ENMFIL, like TOS does
+  - Fix: skip non-existing host files on FSnext() instead
+    of returning an error (latter broke directory listings)
   - Fix: Dsetpath/Dgetpath empty path handling
-- Support read-only HD image files, and show error dialogs
-  for image file open/lock issues
 - Hatari graphics support:
   - Low/med-rez line doubling uses less CPU and doubled lines in
     "TV" display mode are now drawn at half intensity, not as black
@@ -92,19 +112,19 @@ Emulator:
     removed and "Linear scaling" option in GUI is replaced with
     the "GPU scaling" option (=bUseSdlRenderer config option)
   - Added new "--screenshot-dir" option to select the folder for screenshots
-- Show mouse grab toggle shortcut key in startup statusbar message
-- Center host mouse to Hatari window on Atari resets and resolution
-  changes only when window is focused and mouse pointer is within it
-- Accept 10MB as valid ST-RAM amount (max on real MegaSTE/TT machines)
-  and correct invalid Falcon ST-RAM amounts
-- Fix: 24-bit address mode change while emulation is running
-  (triggered e.g. when TT-RAM is enabled for TT)
-- Fix: when autostarting programs without pre-existing INF file,
-  enable blitter also with EmuTOS
-- Fix: keypad emulation with SDL2
-- Fix: simulated (socket API) key input with SDL2
-- Fix: freeze at Hatari exit and RS-232 device file changes,
-  when device file(s) are FIFO(s)
+  - Fix: [ffmpeg/video] Invalid PNG signature 0x89504E470D0A1A
+  - Fix: garbage graphics (by clearing the whole render area)
+  - Fix: Spec512_StoreCyclePalette when using 16 or 32 MHz
+- Input handling:
+  - Support SDL "Hat" events in addition to "Axes" events
+    (= support 80's game controllers, also in SDL GUI)
+  - Map a turbofire button independent of the fire button if the game
+    controller is capable
+  - Show mouse grab toggle shortcut key in startup statusbar message
+  - Center host mouse to Hatari window on Atari resets and resolution
+    changes only when window is focused and mouse pointer is within it
+  - Fix: keypad emulation with SDL2
+  - Fix: simulated (socket API) key input with SDL2
 - Profiler:
   - Profiler backtrace shows now real caller addresses
     and their offsets from the function entry points
@@ -120,6 +140,8 @@ Emulator:
     command line option and debugger "trace" command:
     --trace os_base,aes, trace +xbios,bios, trace -bios,-aes
   - VDI trace shows names also for NVDI/Speedo/GDOS functions
+  - VDI & AES trace function numbers are shown in hexadecimals
+    with 0x prefix like rest of the OS calls
 - Debugger:
   - New "screenshot" command for saving screen dump to a PNG/BMP file
   - "symbols resident" option replaced with "symbols autoload"
@@ -135,7 +157,8 @@ Emulator:
   - "info" command can show AES & VDI information on on their
     respective traps without VDI mode/tracing being enabled
   - Breakpoint ":info" option to call specified info function
-    on tracing breakpoint hits (e.g. ":info vdi")
+    on tracing breakpoint hits (one can now use e.g. ":info vdi"
+    on VdiOpcode breakpoints)
   - Improved symbols info output
 - Native features:
   - Support for missing NF_SHUTDOWN (reset) sub commands
@@ -143,12 +166,17 @@ Emulator:
   - When Hatari resets or exits due to emulated program
     NF_SHUTDOWN / NF_EXIT call, output user a note about that
 
-Building:
+Tools and Hatari Python/Gtk UI:
+- Python scripts use now "python3" because most current distros don't
+  anymore install Python v2 by default.  To use a script with v2,
+  change "python3" in its first line to "python2"
+
+Building and unit tests:
 - Source repository moved from Mercurial to Git
 - Fix: issue with multilib capable cross-compilers
 - Only Caps library v5.1 is supported (support for old v4.2 is dropped)
 - Obsolete Mudflap option replaced with AddressSanitizer support
-- Add tests for GEMDOS HD, fullscreen/overscan display and Hatari
+- Add tests for GEMDOS HD, fullscreen/overscan display, blitter and Hatari
   command FIFO + improve CPU/MMU variant coverage in earlier tests
 
 Documentation:
@@ -161,13 +189,17 @@ Documentation:
 
 Fixed demos:
 - Pacemaker STE demo (end part), when it's run from GEMDOS HD
-- Multi scrolls part in Closure by Sync (regression since Hatari 2.2, vsync
-  in bottom border)
-- Fullscreen part in Hard As Ice STE demo by I.C.E. (screen with no vertical
-  DE signal)
-- Fullast Vinner by Troed/Sync (improved vblank position, partial fix for now)
-- Electric Night Falcon demo by Dune (MFP DMA sound interrupt on timer A using AER)
-- Oompa by No Extra (after greetings part) (blitter access to bus error regions)
+- Multi scrolls part in Closure by Sync
+  (regression since Hatari 2.2, vsync in bottom border)
+- Fullscreen part in Hard As Ice STE demo by I.C.E.
+  (screen with no vertical DE signal)
+- Fullast Vinner by Troed/Sync
+  (improved vblank position, partial fix for now)
+- Electric Night Falcon demo by Dune
+  (MFP DMA sound interrupt on timer A using AER)
+- Oompa by No Extra (after greetings part)
+  (blitter access to bus error regions)
+- E.K.O System (music should now play in the racing scene)
 
 Fixed programs:
 - MS Write (crash), when it's run from GEMDOS HD
@@ -175,6 +207,7 @@ Fixed programs:
 - EmuTos drawing vertical lines with blitter and leaving some trails
   (blitter in non HOG mode using TAS intruction to restart)
 - Cecile v2.22, now also works if no IDE drive has been configured
+- Trans D-Bug Express by PHF (lock when running in megaSTE mode at 16 MHz)
 
 
  Version 2.2.1 (2019-02-08)

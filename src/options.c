@@ -11,7 +11,7 @@
   - Add the option information to HatariOptions[]
   - Add required actions for that ID to switch in Opt_ParseParameters()
 */
-const char Options_fileid[] = "Hatari options.c : " __DATE__ " " __TIME__;
+const char Options_fileid[] = "Hatari options.c";
 
 #include <ctype.h>
 #include <stdio.h>
@@ -459,7 +459,7 @@ static const opt_t HatariOptions[] = {
 	{ OPT_SOUND,   NULL, "--sound",
 	  "<x>", "Sound frequency (x=off/6000-50066, off=fastest)" },
 	{ OPT_SOUNDBUFFERSIZE,   NULL, "--sound-buffer-size",
-	  "<x>", "Sound buffer size in ms (x=0/10-100, 0=default)" },
+	  "<x>", "Sound buffer size in ms (x=0/10-100, 0=SDL default)" },
 	{ OPT_SOUNDSYNC,   NULL, "--sound-sync",
 	  "<bool>", "Sound synchronized emulation (on|off, off=default)" },
 	{ OPT_YM_MIXING,   NULL, "--ym-mixing",
@@ -1923,7 +1923,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			{
 				ConfigureParams.System.nMachineType = MACHINE_MEGA_STE;
 				ConfigureParams.System.nCpuLevel = 0;
-				Configuration_ChangeCpuFreq ( 16 );
+				Configuration_ChangeCpuFreq ( 8 );
 			}
 			else if (strcasecmp(argv[i], "tt") == 0)
 			{
@@ -2227,7 +2227,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 
 		case OPT_PARSE:
 			i += 1;
-			ok = DebugUI_SetParseFile(argv[i]);
+			ok = DebugUI_AddParseFile(argv[i]);
 			break;
 
 		case OPT_SAVECONFIG:

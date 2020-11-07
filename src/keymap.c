@@ -8,7 +8,7 @@
   to the IKBS as pressed/released keys.
   It is done in several ways, controlled by the configuration.
 */
-const char Keymap_fileid[] = "Hatari keymap.c : " __DATE__ " " __TIME__;
+const char Keymap_fileid[] = "Hatari keymap.c";
 
 #include <ctype.h>
 #include "main.h"
