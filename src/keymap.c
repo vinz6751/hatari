@@ -22,6 +22,13 @@ const char Keymap_fileid[] = "Hatari keymap.c : " __DATE__ " " __TIME__;
 #include "log.h"
 
 
+/* ST keyboard modifiers, as would be returned by Kbshift (why reinvent the wheel ?) */
+#define K_RSHIFT	0x0001
+#define K_LSHIFT	0x0002
+#define K_CTRL		0x0004
+#define K_ALTERNATE	0x0008
+#define K_CAPSLOCK	0x0010
+
 #if !WITH_SDL2
 /* This table is used to translate a symbolic keycode to the (SDL) scancode */
 static Uint8 SdlSymToSdlScan[SDLK_LAST];
@@ -32,12 +39,22 @@ static Uint8 SdlSymToSdlScan[SDLK_LAST];
 #define MAX_ST_SCANCODES 4 /* Max is alt-a-b-c, so 4 chars */
 struct KeyMapping
 {
+	/* Input on PC keyboard */
 	SDL_keysym SdlKeysym;
 	SDL_Keymod modmask;
+	/* Output on the ST's keyboard */
 	uint8_t	   STScanCodesLength;
-	uint8_t    STScanCodes[MAX_ST_SCANCODES]; /* Starts with the count of scancodes, followed by scancodes. */
+	uint8_t    STScanCodes[MAX_ST_SCANCODES];
+	/* What modifiers we effectively had to press (and will have to release when the key is up.
+	 * WARNING: this assumes the keyboard doesn't let you press a key that is already pressed. */
+	uint8_t	   PressedModifiers[MAX_ST_SCANCODES];
 };
 static struct KeyMapping LoadedKeyMap[KBD_MAX_SCANCODE];
+static struct KeyMapping DummyMapping; /* For when the mapping doesn't come from the user-defined table */
+
+
+/* Current ST modifiers, as would be returned by KbShift(0) */
+uint32_t currentSTModifiers;
 
 /* List of ST scan codes to NOT de-bounce when running in maximum speed */
 static const char DebounceExtendedKeys[] =
@@ -54,6 +71,7 @@ static const char DebounceExtendedKeys[] =
 static int HostSpecToSDLKeysym(const char *spec, struct KeyMapping* result);
 static int GuestSpecToSTScanCodes(const char *spec, struct KeyMapping *result);
 static SDL_Keymod SDLKeymodFromName(const char *name);
+static void UpdateSTModifiers(uint8_t scancode, bool isPressed);
 
 /*-----------------------------------------------------------------------*/
 /**
@@ -65,6 +83,8 @@ void Keymap_Init(void)
 	memset(SdlSymToSdlScan, 0, sizeof(SdlSymToSdlScan));      /* Clear array */
 #endif
 	Keymap_LoadRemapFile(ConfigureParams.Keyboard.szMappingFileName);
+
+	DummyMapping.STScanCodesLength = 1;
 }
 
 /**
@@ -588,34 +608,35 @@ static char Keymap_GetKeyPadScanCode(const SDL_keysym* pKeySym)
 
 static int InputMatchesKeyMapping(const SDL_keysym* keySym, const struct KeyMapping *mapping)
 {
-	if (keySym->scancode == mapping->SdlKeysym.scancode) 
-		LOG_TRACE(TRACE_KEYMAP,"matching 0x%04x and 0x%04x\n", keySym->mod & mapping->modmask, mapping->SdlKeysym.mod);
+	//if (keySym->scancode == mapping->SdlKeysym.scancode)
+		// LOG_TRACE(TRACE_KEYMAP,"matching 0x%04x and 0x%04x\n", keySym->mod & mapping->modmask, mapping->SdlKeysym.mod);
 	return keySym->scancode == mapping->SdlKeysym.scancode
 		&& (keySym->mod & mapping->modmask) == mapping->SdlKeysym.mod;
 }
+
 
 /**
  * Remap SDL Key to ST Scan code
  * Receives the pressed key from SDL, and a buffer to fill with ST keyboard scan codes to simulate.
  * Returns the number of scan codes filled in the buffer.
  */
-static uint8_t Keymap_RemapKeyToSTScanCodes(SDL_keysym* pKeySym, uint8_t STScanCodes[], bool enableTrace)
+static struct KeyMapping* Keymap_RemapKeyToSTScanCodes(SDL_keysym* pKeySym, bool enableTrace)
 {
 	/* Check for keypad first so we can handle numlock */
 	if (ConfigureParams.Keyboard.nKeymapType != KEYMAP_LOADED)
 	{
 		if (pKeySym->sym >= SDLK_KP1 && pKeySym->sym <= SDLK_KP9)
 		{
-			STScanCodes[0] = Keymap_GetKeyPadScanCode(pKeySym);
-			return 1;
+			DummyMapping.STScanCodes[0] = Keymap_GetKeyPadScanCode(pKeySym);
+			return &DummyMapping;
 		}
 	}
 
 	/* Remap from PC scancodes? */
 	if (ConfigureParams.Keyboard.nKeymapType == KEYMAP_SCANCODE)
 	{
-		STScanCodes[0] = Keymap_PcToStScanCode(pKeySym);
-		return 1;
+		DummyMapping.STScanCodes[0] = Keymap_PcToStScanCode(pKeySym);
+		return &DummyMapping;
 	}
 
 	/* Use loaded keymap? */
@@ -632,20 +653,18 @@ static uint8_t Keymap_RemapKeyToSTScanCodes(SDL_keysym* pKeySym, uint8_t STScanC
 			if (!InputMatchesKeyMapping(pKeySym, mapping))
 				continue;
 
-			for (int j=0 ; j < mapping->STScanCodesLength ; j++)
-				STScanCodes[j] = mapping->STScanCodes[j];
-
 			if (enableTrace)
-				LOG_TRACE(TRACE_KEYMAP,"Keymap found: %02x %02x %02x (%d bytes)\n",STScanCodes[0],STScanCodes[1],STScanCodes[2],mapping->STScanCodesLength);
-			return mapping->STScanCodesLength;
+				LOG_TRACE(TRACE_KEYMAP,"Keymap found: %02x %02x %02x (%d bytes)\n",
+					mapping->STScanCodes[0],mapping->STScanCodes[1],mapping->STScanCodes[2],mapping->STScanCodesLength);
+			return mapping;
 		}
 	}
 
 	/* Fall back to symbolic mapping */
-	STScanCodes[0] = Keymap_SymbolicToStScanCode(pKeySym);
+	DummyMapping.STScanCodes[0] = Keymap_SymbolicToStScanCode(pKeySym);
 	if (enableTrace)
-		LOG_TRACE(TRACE_KEYMAP,"Symbolic mapping: %02x\n",STScanCodes[0]);
-	return 1;
+		LOG_TRACE(TRACE_KEYMAP,"Symbolic mapping: %02x\n",DummyMapping.STScanCodes[0]);
+	return &DummyMapping;
 }
 
 
@@ -913,17 +932,27 @@ static int IsKeyTranslatable(SDL_Keycode symkey)
 }
 
 
+static bool IsSTModifier(uint8_t scancode)
+{
+	switch (scancode)
+	{
+		case 0x2a: /* left shift */
+		case 0x36: /* right shift */
+		case 0x38: /* alternate */
+			return true;
+	}
+	return false;
+}
+
 /*-----------------------------------------------------------------------*/
 /**
  * User pressed a key down
  */
 void Keymap_KeyDown(SDL_keysym *sdlkey)
 {
-	uint8_t stScanCodes[MAX_ST_SCANCODES]; /* The ST scancodes simulating the key down */
-	uint8_t stScanCodesLength; /* Length of stScanCodes array */
-	uint8_t modifiersToRelease[3] = { 0, 0, 0 }; /* 2 modifiers (alt-shift) + terminating 0 */
+	struct KeyMapping* mapping;
+	uint8_t* modifiers;
 	int i;
-	uint8_t *modifiers = modifiersToRelease;
 	/* Convenience */
 	int symkey = sdlkey->sym;
 	int modkey = sdlkey->mod;
@@ -942,41 +971,41 @@ void Keymap_KeyDown(SDL_keysym *sdlkey)
 	if (!IsKeyTranslatable(symkey))
 		return;
 
-	stScanCodesLength = Keymap_RemapKeyToSTScanCodes(sdlkey, stScanCodes, true);
-	if (stScanCodesLength == 0)
+	mapping = Keymap_RemapKeyToSTScanCodes(sdlkey, true);
+	if (mapping == NULL)
 		return;
 
-	for (i = 0; i < stScanCodesLength ; i++)
+	modifiers = mapping->PressedModifiers;
+	for (i = 0; i < mapping->STScanCodesLength ; i++)
 	{
-		uint8_t scanCode = stScanCodes[i];
+		uint8_t scancode = mapping->STScanCodes[i];
 
-		Keyboard.KeyStates[scanCode]++;
-		if (Keyboard.KeyStates[scanCode] == 1)
+		Keyboard.KeyStates[scancode]++;
+
+		/* If that key was not already pressed, press it */
+		if (Keyboard.KeyStates[scancode] == 1)
 		{
-			/* If we press ST modifiers key, we have to remember them because we'll
-			 * have to release them later */
-			switch (scanCode)
-			{
-				case 0x2a: /* left shift */
-				case 0x36: /* right shift */
-				case 0x38: /* alternate */
-					*modifiers++ = scanCode; 
-			}
+			/* If it's a modifier that we're pressing, remember to release it later.
+			 * In case you're wondering why we don't release the modifiers immediately after
+             * pressing the key: the reason is that if the user keeps the key down to make it
+			 * repeat, the modifiers need to be there, otherwise it is the "unshifter/unalted"
+			 * character that will repeat instead.
+			 * TODO: Unfortunately this causes a bug as the modifiers will accumulate if you
+			 * press multiple modified keys at once. For example, if on a French keyboard you 
+			 * press ALT-5 (to get a [), the ALTERNATE modifier will be retained. Holding that
+			 * ALT down and pressing the key 6 at the same time (to get |), the | only requires
+			 * SHIFT to be pressed. But ALTERNATE also being emulated, you will get ~.
+			 * To maybe fix that we would have to manage a stack of modifiers, so we could 
+			 * release ALT while 7 is pressed (as it only requires SHIFT) then press it again
+			 * when 7 is released. Is it really worth the effort... */
+			if (IsSTModifier(scancode))
+				*modifiers++ = scancode;
 
 			/* Set down */
-			IKBD_PressSTKey(scanCode, true);
+			IKBD_PressSTKey(scancode, true);
 		}
 	}
-
-	if (stScanCodesLength > 1)
-	{
-		/* If we have more than one scan code, that must mean we added
-		 * modifiers to emulate the key. So now the key is pressed we
-		 * must release them */
-		modifiers = modifiersToRelease;
-		while (*modifiers)
-			IKBD_PressSTKey(*modifiers++, false);
-	}
+	*modifiers = 0; /* End the list of modifers to release */
 }
 
 
@@ -986,8 +1015,9 @@ void Keymap_KeyDown(SDL_keysym *sdlkey)
  */
 void Keymap_KeyUp(SDL_keysym *sdlkey)
 {
-	uint8_t STScanCodes[MAX_ST_SCANCODES];
-	uint8_t STScanCodesLength;
+	struct KeyMapping *mapping;
+	uint8_t *modifiers;
+	int i;
 	int symkey = sdlkey->sym;
 	int modkey = sdlkey->mod;
 
@@ -1007,24 +1037,34 @@ void Keymap_KeyUp(SDL_keysym *sdlkey)
 	if (!IsKeyTranslatable(symkey))
 		return;
 
-	STScanCodesLength = Keymap_RemapKeyToSTScanCodes(sdlkey, STScanCodes, false);
-	/* Release key (only if was pressed) */
-	if (STScanCodesLength > 0)
-	{
-		int iScanCode;
-		for (iScanCode = 0; iScanCode < STScanCodesLength ; iScanCode++)
-		{
-			uint8_t scanCode = STScanCodes[iScanCode];
+	mapping = Keymap_RemapKeyToSTScanCodes(sdlkey, false);
+	if (mapping == NULL)
+		return;
 
-			/* Set up */
-			Keyboard.KeyStates[scanCode]--;
-			if (Keyboard.KeyStates[scanCode] == 0)
-			{
-				IKBD_PressSTKey(scanCode, false);
-			}
-		}
+	/* Release key (only if was pressed) */
+	for (i = 0; i < mapping->STScanCodesLength ; i++)
+	{
+		uint8_t scancode = mapping->STScanCodes[i];
+
+		if (IsSTModifier(scancode) && mapping->STScanCodesLength > 1)
+			continue; /* We release emulated modifiers last */
+
+		/* Set up */
+		Keyboard.KeyStates[scancode]--;
+		if (Keyboard.KeyStates[scancode] == 0)
+			IKBD_PressSTKey(scancode, false);
+	}
+
+	/* Release modifiers that were pressed to emulate the key*/
+	modifiers = mapping->PressedModifiers;
+	while (*modifiers)
+	{
+		Keyboard.KeyStates[*modifiers]--;
+		if (Keyboard.KeyStates[*modifiers] == 0)
+			IKBD_PressSTKey(*modifiers++, false);
 	}
 }
+
 
 /*-----------------------------------------------------------------------*/
 /**
