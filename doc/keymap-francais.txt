@@ -16,7 +16,7 @@
 # separated by a pipe |.
 #
 # <guest_description> is the pipe-separated ordered list of scancodes to send
-# to the ST (3 max). For convenience you can use LSHIFT, RSHIFT and
+# to the ST (4 max). For convenience you can use LSHIFT, RSHIFT and
 # ALTERNATE in lieu of 2a,36,38 respectively.
 # You can find scancodes in many Atari documentation places, e.g.
 # https://tho-otto.de/keyboards/
@@ -25,7 +25,7 @@
 # Notes:
 # * All scan codes must be in hexadecimal.
 # * The parser is not very smart so don't add spaces etc.
-# * Make the most demanding specification appear first.
+# * Make the narrowest specification appear first.
 
 04,1e
 # ,
