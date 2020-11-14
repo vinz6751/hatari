@@ -5,10 +5,9 @@
   or at your option any later version. Read the file gpl.txt for details.
 
   This file is about being able to map SDL key events to scancodes to send
-  to the IKBS as pressed/released keys.
+  to the IKBD as pressed/released keys.
   It is done in several ways, controlled by the configuration.
 */
-const char Keymap_fileid[] = "Hatari keymap.c";
 
 #include <ctype.h>
 #include "main.h"
@@ -1046,7 +1045,7 @@ void Keymap_KeyUp(SDL_keysym *sdlkey)
 	int symkey = sdlkey->sym;
 	int modkey = sdlkey->mod;
 
-	 LOG_TRACE(TRACE_KEYMAP, "Keymap_KeyUp: sym=%i scancode=0x%02x mod=0x%02x name='%s'\n",
+	LOG_TRACE(TRACE_KEYMAP, "Keymap_KeyUp: sym=%i scancode=0x%02x mod=0x%02x name='%s'\n",
 	          symkey, sdlkey->scancode, modkey, Keymap_GetKeyName(symkey));
 
 	/* Ignore short-cut keys here */
