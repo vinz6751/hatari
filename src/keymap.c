@@ -22,7 +22,8 @@
 #include "debugui.h"
 #include "log.h"
 
-#define MAX_SDLK_SCANCODES 284+1
+/* Highest scancode number. See https://wiki.libsdl.org/SDLScancodeLookup */
+#define MAX_SDLK_SCANCODES 284+1 
 
 /* Scancode of ST keyboard */
 #define ST_ESC		 0x01
