@@ -17,6 +17,7 @@ Contents:
    3.3 Notes for Linux distribution packagers
        3.3.1 Known distro problems
 4. Running Hatari
+   4.1 Known Windows (SDL) issues
 5. Hatari tools and their run-time dependencies
 6. Hatari source subdirectory contents
 7. Contact
@@ -116,7 +117,7 @@ options of this script.
 Once you have successfully configured the build settings, you can compile
 Hatari with:
 
-	cmake --build . -j$(getconf _NPROCESSORS_ONLN)
+	cmake --build . -j $(getconf _NPROCESSORS_ONLN)
 
 If all works fine, you should get the executable "hatari" in the src/ sub-
 directory of the build tree. You can then either run the executable from
@@ -239,6 +240,25 @@ doc/manual.html. Here are just some hints for the impatient people:
   Pressing ALTGR-q will quit the emulator.
 
 
+ 4.1) Known Windows (SDL) issues
+
+On Windows, Hatari console output doesn't go to console like on other
+platforms.
+
+This is because Windows SDL v1 library redirects all console output
+(including help!) to stdout.txt and stderr.txt files (by default), and
+SDL v2 library discards all that output.
+
+To see Hatari help/warning/trace output, and to interact with Hatari
+debugger, there two options:
+- Run Hatari with "-W" option, or
+- Compile Hatari with "-mconsole" option (as last --linker flag) to
+  build Hatari for the Windows console subsystem
+    
+Because these cause separate console output window to be opened (in
+addition to the Hatari window), they are not enabled by default. 
+
+
  5) Hatari tools and their run-time dependencies
  -----------------------------------------------
 
@@ -274,6 +294,9 @@ Their main run-time dependencies are:
   - gui-sdl/ -- builtin SDL v1 / v2 GUI for Hatari
   - gui-win/ -- MS Windows console code + icon
 * tests/ -- shell/python scripts & programs for testing emulator functionality
+  - keymap/ -- programs showing keycodes to use in Hatari keymap files
+  - natfeats/ -- test and example Atari code for using Hatari features
+  - etc.
 * tools/ -- shell/python scripts & programs useful with Hatari
   - debugger/ -- debug symbol conversion scripts & profile data tools
   - hconsole/ -- out-of-process Hatari control / automation tool

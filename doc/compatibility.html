@@ -29,7 +29,7 @@
 <h1 class="pageheader">Hatari Atari Software Compatibility List</h1>
 
 <p class="pageheader">
-Version 2.2.1, February 2019
+Version 2.3-dev, November 2020
 </p>
 <p class="pageheader">
 This list has been written by: <strong>Thomas Huth</strong>, <strong>Eero Tamminen</strong>
@@ -2082,13 +2082,13 @@ href="http://www.umich.edu/~archive/atari/Games/Space/zero_5.zip">Zero-5</a><br 
 As all 1-8 bit GEM programs work without problems under TT emulation
 this section lists only programs that have TT-specific features.</p>
 
-<h3>TT games</h3>
+<h3>TT applications and games</h3>
 
 <table>
   <caption>TT applications and games</caption>
   <thead>
     <tr class="backdropped">
-      <th>App/Game</th>
+      <th>Program</th>
       <th>Hatari version</th>
       <th>Notes</th>
     </tr>
@@ -2101,9 +2101,20 @@ this section lists only programs that have TT-specific features.</p>
           check (although they should support TT with chip music)</td>
     </tr>
     <tr>
+      <td><a href="http://s390174849.online.de/ray.tscc.de/misc.htm#cryview">CrY image viewer</a></td>
+      <td class="minor">2.2</td>
+      <td>Needs at least some TT-RAM.  interlaced 16bpp CrY mode flickers badly
+          + colors are wrong (by tSCc)</td>
+    </tr>
+    <tr>
       <td><a href="https://gtello.pagesperso-orange.fr/mplayere.htm">M_PLAYER</a></td>
       <td>2.3-dev</td>
       <td>Movie player and creator. v4.02 has TT microwire support for audio</td>
+    </tr>
+    <tr>
+      <td>Milanopoly</td>
+      <td>1.0</td>
+      <td>GEM monopoly</td>
     </tr>
     <tr>
       <td><a href="http://atari-forum.com/viewtopic.php?f=26&amp;t=13658&amp;start=50">OpenTTD</a></td>
@@ -2117,6 +2128,16 @@ with FPU and no DSP. Start from TT-low resolution.</td>
       <td>Oxyd 2 TT</td>
       <td>before 1.0</td>
       <td>Oxyd 2 in color</td>
+    </tr>
+    <tr>
+      <td><a href="http://pagesperso-orange.fr/patrice.mandin/en/port-jeux.html">PM Doom, Heretic and Hexen</a></td>
+      <td>1.0</td>
+      <td>Heretic v0.24 is playable, Doom and Hexen v0.55 are very slow</td>
+    </tr>
+    <tr>
+      <td>TUM</td>
+      <td>1.0</td>
+      <td>"The Ultimate Minesweeper", GEM, sound effects</td>
     </tr>
   </tbody>
 </table>
@@ -2175,12 +2196,6 @@ with FPU and no DSP. Start from TT-low resolution.</td>
       <a href="http://www.pouet.net/prod.php?which=16426">Beams</a></td>
       <td>2.1</td>
       <td>TT-version. At least 8MB RAM</td>
-    </tr>
-    <tr>
-      <td>tSCc:
-      <a href="http://s390174849.online.de/ray.tscc.de/misc.htm#cryview">CrY image viewer</a></td>
-      <td class="minor">2.2</td>
-      <td>Needs at least some TT-RAM.  interlaced 16bpp CrY mode flickers badly + colors are wrong</td>
     </tr>
     <tr>
       <td>tSCc:
@@ -2276,11 +2291,11 @@ VGA one are indicated separately.</p>
       <td></td>
     </tr>
     <tr>
-      <td>Addsub</td>
-      <td class="minor">2.0</td>
+      <td><a href="http://www.atarimania.com/game-atari-st-addsub-falcon030_23139.html">Addsub</a></td>
+      <td class="minor">2.3-dev</td>
       <td>-</td>
       <td>-</td>
-      <td>Cannot be played. Exits when joystick up is used,
+      <td>Cannot be played. Exits when joystick up direction is used,
           often also on second startup</td>
     </tr>
     <tr>
@@ -2374,11 +2389,12 @@ VGA one are indicated separately.</p>
     </tr>
     <tr>
       <td><a href="http://pouet.net/prod.php?which=29351">Cavemania (demo)</a></td>
-      <td class="minor">2.0</td>
+      <td class="minor">2.3-dev</td>
       <td>yes</td>
       <td>-</td>
       <td>Some menus are black (space gets through them).
-          Game area bottom shows garbage. Background music with DSP emu</td>
+          Scrolling to bottom of game area b shows garbage.
+	  Background music with DSP emu</td>
     </tr>
     <tr>
       <td><a href="http://paradize.final-memory.org/games.shtml">ChainZ</a></td>
@@ -2548,18 +2564,17 @@ VGA one are indicated separately.</p>
     </tr>
     <tr>
       <td><a href="http://www.pouet.net/prod.php?which=50840">Grenzüberschreitung</a></td>
-      <td class="minor">2.0</td>
+      <td>2.3-dev</td>
       <td>yes</td>
       <td>-</td>
-      <td>Tron, using Lua-interpreter. In game menu,
-          joypad directions work, fire doesn't</td>
+      <td>Tron, using Lua-interpreter. Use joypad</td>
     </tr>
     <tr>
       <td><a href="http://www.pouet.net/prod.php?which=17762">H2O</a></td>
-      <td>1.4</td>
+      <td class="minor">2.3-dev</td>
       <td>yes</td>
       <td>emu</td>
-      <td>Nice</td>
+      <td>Nice. Sound stopped working in v1.6 due to DSP SSI change</td>
     </tr>
     <tr>
       <td>Hexogan (v0.6)</td>
@@ -2680,13 +2695,6 @@ VGA one are indicated separately.</p>
 	  longer with MMU)</td>
     </tr>
     <tr>
-      <td>Milanopol</td>
-      <td>1.0</td>
-      <td>-</td>
-      <td>-</td>
-      <td></td>
-    </tr>
-    <tr>
       <td>Mini F1 demo</td>
       <td class="major">2.3-dev</td>
       <td>-</td>
@@ -2789,13 +2797,6 @@ VGA one are indicated separately.</p>
       <td>-</td>
       <td>Colors wrong in classic version, TC version just exits.
           Background music with DSP</td>
-    </tr>
-    <tr>
-      <td><a href="http://pagesperso-orange.fr/patrice.mandin/en/port-jeux.html">PMHeretic &amp; PMDoom</a></td>
-      <td>1.0</td>
-      <td>yes</td>
-      <td>-</td>
-      <td>Very slow</td>
     </tr>
     <tr>
       <td>Poker</td>
@@ -2917,7 +2918,8 @@ VGA one are indicated separately.</p>
       <td>1.6</td>
       <td>yes</td>
       <td>dummy</td>
-      <td>Needs 14MB of RAM. Background music if DSP emu enabled</td>
+      <td>Needs 14MB of RAM, and MMU with Hatari v2.3. Background
+          music if DSP emu enabled</td>
     </tr>
     <tr>
       <td>Sokoban by FUN</td>
@@ -3036,18 +3038,11 @@ VGA one are indicated separately.</p>
     </tr>
     <tr>
       <td>TsccTron (preview)</td>
-      <td class="minor">2.0</td>
+      <td class="minor">2.3-dev</td>
       <td>yes</td>
       <td>-</td>
-      <td>Requires WinUAE CPU core, bottom screen black
+      <td>Requires WinUAE CPU core. Screen bottom is just black
           (palette tricks?). Background music if DSP emu enabled</td>
-    </tr>
-    <tr>
-      <td>TUM</td>
-      <td>1.0</td>
-      <td>yes</td>
-      <td>-</td>
-      <td>GEM minesweeper</td>
     </tr>
     <tr>
       <td>Ufo War</td>
