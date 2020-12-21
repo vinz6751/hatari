@@ -560,7 +560,7 @@ static int bdrv_open(BlockDriverState *bs, const char *filename, unsigned long b
 	Log_Printf(LOG_INFO, "Mounting IDE hard drive image %s\n", filename);
 
 	bs->read_only = 0;
-	bs->file_size = HDC_CheckAndGetSize(filename, blockSize);
+	bs->file_size = HDC_CheckAndGetSize("IDE", filename, blockSize);
 	if (bs->file_size <= 0)
 		return -1;
 	if (bs->file_size < 2 * 16 * 63 * bs->sector_size)
@@ -576,14 +576,21 @@ static int bdrv_open(BlockDriverState *bs, const char *filename, unsigned long b
 		/* Maybe the file is read-only? */
 		bs->fhndl = fopen(filename, "rb");
 		if (!bs->fhndl)
+		{
 			perror("bdrv_open");
+			Log_AlertDlg(LOG_ERROR, "Cannot open IDE HD for reading\n'%s'.\n", filename);
+			return -1;
+		}
+		Log_AlertDlg(LOG_WARN, "IDE HD file is read-only, no writes will go through\n'%s'.\n",
+			     filename);
 		bs->read_only = 1;
 	}
 	else if (!File_Lock(bs->fhndl))
 	{
-		Log_Printf(LOG_ERROR, "Cannot lock HD file for writing!\n");
+		Log_AlertDlg(LOG_ERROR, "Locking IDE HD file for writing failed\n'%s'!\n", filename);
 		fclose(bs->fhndl);
 		bs->fhndl = NULL;
+		return -1;
 	}
 
 	/* call the change callback */
@@ -2733,7 +2740,11 @@ void Ide_Init(void)
 		if (ConfigureParams.Ide[i].bUseDevice)
 		{
 			int is_byteswap;
-			bdrv_open(hd_table[i], ConfigureParams.Ide[i].sDeviceFile, ConfigureParams.Ide[i].nBlockSize, 0);
+			if (bdrv_open(hd_table[i], ConfigureParams.Ide[i].sDeviceFile, ConfigureParams.Ide[i].nBlockSize, 0) < 0)
+			{
+				ConfigureParams.Ide[i].bUseDevice = false;
+				continue;
+			}
 			nIDEPartitions += HDC_PartitionCount(hd_table[i]->fhndl, TRACE_IDE, &is_byteswap);
 			/* Our IDE implementation is little endian by default,
 			 * so we need to byteswap if the image is not swapped! */
