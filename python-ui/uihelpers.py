@@ -1,7 +1,7 @@
 #
 # Misc common helper classes and functions for the Hatari UI
 #
-# Copyright (C) 2008-2019 by Eero Tamminen
+# Copyright (C) 2008-2020 by Eero Tamminen
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@ import gi
 # use correct version of gtk
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk
-from gi.repository import GObject
+from gi.repository import GLib
 
 
 # leak debugging
@@ -38,7 +38,7 @@ class UInfo:
     logo = "hatari-logo.png"
     # TODO: use share/icons/hicolor/*/apps/hatari.png instead
     icon = "hatari-icon.png"
-    copyright = "UI copyright (C) 2008-2019 by Eero Tamminen"
+    copyright = "Python/Gtk UI copyright (C) 2008-2020 by Eero Tamminen"
 
     # path to the directory where the called script resides
     path = os.path.dirname(sys.argv[0])
@@ -169,7 +169,7 @@ class HatariTextInsert:
         self.pressed = False
         self.hatari = hatari
         print("OUTPUT '%s'" % text)
-        GObject.timeout_add(100, _text_insert_cb, self)
+        GLib.timeout_add(100, _text_insert_cb, self)
 
 # callback to insert text object to Hatari character at the time
 # (first key down, on next call up), at given interval

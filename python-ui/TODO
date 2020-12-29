@@ -4,13 +4,11 @@ TODO
 Potential TODO items for Hatari UI (in addition to the ones listed in
 its sources).
 
-* Fix Python/Gtk deprecation warnings (these require also
-  newer versions of the Glib/Gtk bindings):
+* Fix Gtk v3 and its Python bindings deprecation warnings:
   - See: https://python-gtk-3-tutorial.readthedocs.io/en/latest/
   - Menus & ActionGroups -> Application framework
   - Table -> Grid layout in dialogs
   - Positional -> named arguments
-  - GObject -> Glib
 
 * Interface between UI and Hatari so that Hatari will forward error
   and other dialog texts to UI for showing, and waits until user has
@@ -22,6 +20,11 @@ its sources).
   - 32-bit addressing
 
 * Support all 8 ACSI and SCSI drives
+
+* Use file selector widget instead of text widget for specifying input
+  paths for memory snapshots and devices, so that user can't provide
+  invalid paths (sound, snapshot and device output files can be
+  non-existing as they're created on demand)
 
 * Separate "Atari monitor" and "Hatari window" settings dialogs
   (move options from "Display" and monitor setting from "Machine"
