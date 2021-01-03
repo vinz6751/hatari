@@ -2,7 +2,7 @@
 
                                     Hatari
 
-                             Version 2.3.0, November 2020
+                             Version 2.3.1, December 2020
 
                             http://hatari.tuxfamily.org/
 
@@ -87,7 +87,7 @@ Optional:
 - The GNU Readline library for Hatari debugger command line editing
 - The Xlib library to support Hatari Python UI window embedding on
   systems with the X window system (Linux and other unixes)
-- The PortMidi library required for MIDI support on macOS and Windows
+- The PortMidi library required for MIDI device support on macOS and Windows
   (http://portmedia.sourceforge.net/)
 - The portaudio library for Falcon microphone handling
 - The udev library for NatFeats SCSI driver media change detection
@@ -140,6 +140,10 @@ directory of the build tree. You can then either run the executable from
 there, or install the emulator system-wide by typing:
 
 	cmake --install .
+
+Note: This only works with CMake version 3.15 and later. On earlier versions,
+you have to use the install command of the generator program instead, e.g.
+"make install" if you are using the classical "make" for building Hatari.
 
 
  3.3) WinUAE and "old" UAE CPU cores

@@ -4,8 +4,8 @@
                                 Release Notes
 
 
- Development version
- -------------------
+ Version 2.3.1 (2020-12-27)
+ --------------------------
 
 Following features are deprecated and will be removed in a future release:
 - Support for the SDL 1.2 library (i.e. SDL 2.x should be used instead)
@@ -50,6 +50,10 @@ Python UI:
 Tools:
 - Fix: assert in hatari_profile (profile post-processor)
   with relative symbols
+
+Documentation:
+- Add PortMidi info to devices dialog section in manual
+- Updated compatibility documentation
 
 Fixed Falcon programs:
 - Music missing in H2O game, in Running game main screen,

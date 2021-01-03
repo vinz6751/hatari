@@ -24,7 +24,7 @@
 <h1 class="pageheader">Hatari User's Manual</h1>
 
 <p class="pageheader">
-Version 2.3, November 2020
+Version 2.3.1, December 2020
 </p>
 <p class="pageheader">
 Manual written by: <strong>Thomas Huth</strong>, <strong>Matthias Arndt</strong>
@@ -400,7 +400,7 @@ decrease AVI video recording file sizes. You can get it from
 command line editing.</li>
 <li>The Xlib library to support Hatari Python UI window embedding
 on systems with the X window system (Linux and other unixes).</li>
-<li>The PortMidi library required for MIDI support on macOS and Windows
+<li>The PortMidi library required for MIDI device support on macOS and Windows
 <a href="http://portmedia.sourceforge.net/">http://portmedia.sourceforge.net/</a>.</li>
 <li>The portaudio library for Falcon microphone recording support.</li>
 <li>The udev library for NatFeats SCSI driver media change detection (Linux).</li>
@@ -818,15 +818,16 @@ given port</p>
 <p class="paramdesc">Enable printer support and write data
 to &lt;file&gt;</p>
 <p class="parameter">--midi &lt;bool&gt;</p>
-<p class="paramdesc">Enable MIDI support (PortMidi only)</p>
+<p class="paramdesc">Enable MIDI support
+(when Hatari is built with PortMidi support)</p>
 <p class="parameter">--midi-in
 &lt;filename&gt;</p>
-<p class="paramdesc">Enable MIDI support and write MIDI data
-to &lt;file&gt; (Linux only)</p>
+<p class="paramdesc">Enable MIDI support and write MIDI data to &lt;file&gt;
+(when not built with PortMidi support)</p>
 <p class="parameter">--midi-out
 &lt;filename&gt;</p>
-<p class="paramdesc">Enable MIDI support and read MIDI data
-from &lt;file&gt; (Linux only)</p>
+<p class="paramdesc">Enable MIDI support and read MIDI data from &lt;file&gt;
+(when not built with PortMidi support)</p>
 <p class="parameter">--rs232-in
 &lt;filename&gt;</p>
 <p class="paramdesc">Enable MFP serial port support and use
@@ -1931,14 +1932,14 @@ for accurate sound's emulation.
        alt="Hatari's GUI - the device dialog" />
 </div>
 
-<p>Check the first checkmark to enable printer support.
+<p>Check the first checkbox to enable printer support.
 See the <a href="#Emulated_printer">Emulated printer</a> section for
 details.</p>
 
 <p>As Hatari currently only supports printing to file, click on <span
  class="button">Browse</span> to select the file to print to. You can
 enter a new filename as well.</p>
-<p>Check the second checkmark to enable RS232 support.
+<p>Check the second checkbox to enable RS232 support.
 The RS232 device is configured according to the settings of
 the emulated MFP RS232 of the Atari ST/STE/TT. This means Hatari will
 automatically use baudrate and handshaking as configured for the
@@ -1947,14 +1948,42 @@ emulated machine.</p>
 device files for serial input and output.  On Linux a good choice is
 /dev/ttyS0 or /dev/ttyS1.
 </p>
-<p>Check the third checkmark to enable MIDI support.
+<p>
+Check the third checkbox to enable MIDI support.
+</p>
+<h5>MIDI support</h5>
+<p>
+Hatari MIDI support can be provided either with a PortMidi library
+(required on Mac / Windows), or using "raw" MIDI device files. Latter
+supports also MIDI networking in games, and can be used for debug
+output, while PortMidi handles only MIDI events and doesn't currently
+work with all MIDI SW.
+</p>
+<h6>"raw" MIDI device file selection</h6>
+<p>
 Click on <span class="button">Browse</span> to select a suitable
-MIDI device files for MIDI input and output.</p>
-<p><span class="file">midi-linux.txt</span> file explains how to
+MIDI device files for MIDI input and output.
+</p>
+<p>
+<span class="file">midi-linux.txt</span> file explains how to
 select the correct MIDI device file, how to set up software sound
-synthesizing on Linux (using Alsa) if your sound card/driver doesn't
-support MIDI, and how to set up MIDI networking e.g. between multiple
-Hatari instances.
+synthesizing on Linux (using ALSA) if your sound card/driver doesn't
+support MIDI, and how to set up MIDI networking between multiple
+Hatari instances, even over internet.
+</p>
+<div class="floatimage">
+  <img src="images/devices-portmidi.png" width="520" height="114"
+       alt="Hatari's GUI - PortMidi MIDI device selection" />
+</div>
+<h6>PortMidi MIDI device selection</h6>
+<p>
+Click on arrow buttons to select a suitable MIDI devices for MIDI
+input and output.
+</p>
+<p>
+PortMidi will list only currently active MIDI devices.  On Linux
+these are subset of ones listed e.g. by ALSA
+<span class="commandline">aconnect -l</span> command.
 </p>
 
 

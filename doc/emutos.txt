@@ -37,7 +37,7 @@ the EmuTOS website.
 
 The tos.img file included with the latest Hatari releases is
 the etos512k.img[1] from a preceding EmuTOS release:
-- Hatari v2.3.0:
+- Hatari v2.3.0, v2.3.1:
   https://sourceforge.net/projects/emutos/files/emutos/1.0/
 - Hatari v2.2.0, v2.2.1:
   https://sourceforge.net/projects/emutos/files/emutos/0.9.10/
@@ -1146,6 +1146,7 @@ Working games:
 - GEM NetHack v3.4.3
 - GEM Santarun
 - GEM Slashem v3.3.1
+- OpenDUNE
 - OpenTTD (start from TT-low with 256MBs of TT-RAM)
 - Oxyd (Falcon version)
 - PM Doom, Heretic & Hexen v0.55 (ports by Patrice Mandin)
