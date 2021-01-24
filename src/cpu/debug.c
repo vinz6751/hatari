@@ -133,7 +133,8 @@ void activate_debugger (void)
 	debug_pc = 0xffffffff;
 	trace_mode = 0;
 	if (debugger_active) {
-		write_log(_T("Debugger already active!?\n"));
+		// already in debugger but some break point triggered
+		// during disassembly etc..
 		return;
 	}
 	debug_cycles();
@@ -1861,9 +1862,14 @@ void record_dma_replace(int hpos, int vpos, int type, int extra)
 	dr->extra = extra;
 }
 
+static void dma_conflict(int vpos, int hpos, struct dma_rec *dr, int reg, bool write)
+{
+	write_log(_T("DMA conflict %c: v=%d h=%d OREG=%04X NREG=%04X\n"), write ? 'W' : 'R', vpos, hpos, dr->reg, reg);
+}
+
 void record_dma_write(uae_u16 reg, uae_u32 dat, uae_u32 addr, int hpos, int vpos, int type, int extra)
 {
-	struct dma_rec* dr;
+	struct dma_rec *dr;
 
 	if (!dma_record[0]) {
 		dma_record[0] = xmalloc(struct dma_rec, NR_DMA_REC_HPOS * NR_DMA_REC_VPOS);
@@ -1880,7 +1886,7 @@ void record_dma_write(uae_u16 reg, uae_u32 dat, uae_u32 addr, int hpos, int vpos
 	dr = &dma_record[dma_record_toggle][vpos * NR_DMA_REC_HPOS + hpos];
 	dma_record_frame[dma_record_toggle] = timeframes;
 	if (dr->reg != 0xffff) {
-		write_log(_T("DMA conflict: v=%d h=%d OREG=%04X NREG=%04X\n"), vpos, hpos, dr->reg, reg);
+		dma_conflict(vpos, hpos, dr, reg, false);
 		return;
 	}
 	dr->reg = reg;
@@ -1917,7 +1923,7 @@ void record_dma_read(uae_u16 reg, uae_u32 addr, int hpos, int vpos, int type, in
 	dr = &dma_record[dma_record_toggle][vpos * NR_DMA_REC_HPOS + hpos];
 	dma_record_frame[dma_record_toggle] = timeframes;
 	if (dr->reg != 0xffff) {
-		write_log (_T("DMA conflict: v=%d h=%d OREG=%04X NREG=%04X\n"), vpos, hpos, dr->reg, reg);
+		dma_conflict(vpos, hpos, dr, reg, false);
 		return;
 	}
 	dr->reg = reg;
@@ -4847,19 +4853,33 @@ int instruction_breakpoint (TCHAR **c)
 			}
 			return 0;
 		} else if (nc == 'I') {
-			next_char (c);
+			uae_u16 opcodes[32];
+			next_char(c);
+			ignore_ws(c);
 			trace_param[1] = 0x10000;
 			trace_param[2] = 0x10000;
-			if (more_params(c)) {
-				trace_param[0] = readhex(c);
-				if (more_params(c)) {
-					trace_param[1] = readhex(c);
-				}
-				if (more_params(c)) {
-					trace_param[2] = readhex(c);
+
+			int w = m68k_asm(*c, opcodes, 0);
+			if (w > 0) {
+				trace_param[0] = opcodes[0];
+				if (w > 1) {
+					trace_param[1] = opcodes[1];
+					if (w > 2) {
+						trace_param[2] = opcodes[2];
+					}
 				}
 			} else {
-				trace_param[0] = 0x10000;
+				if (more_params(c)) {
+					trace_param[0] = readhex(c);
+					if (more_params(c)) {
+						trace_param[1] = readhex(c);
+					}
+					if (more_params(c)) {
+						trace_param[2] = readhex(c);
+					}
+				} else {
+					trace_param[0] = 0x10000;
+				}
 			}
 			trace_mode = TRACE_MATCH_INS;
 			return 1;

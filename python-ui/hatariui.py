@@ -136,7 +136,7 @@ class UICallbacks:
         if toolbars["bottom"]:
             vbox.pack_start(toolbars["bottom"], False, True, 0)
         # put them to main window
-        mainwin = Gtk.Window(Gtk.WindowType.TOPLEVEL)
+        mainwin = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
         mainwin.set_title("%s %s" % (UInfo.name, UInfo.version))
         mainwin.set_icon_from_file(UInfo.icon)
         if accelgroup:
@@ -155,7 +155,6 @@ class UICallbacks:
         socket = Gtk.Socket(can_focus=True)
         # without this, closing Hatari would remove the socket widget
         socket.connect("plug-removed", lambda obj: True)
-        socket.modify_bg(Gtk.StateType.NORMAL, Gdk.color_parse("black"))
         socket.set_events(Gdk.EventMask.ALL_EVENTS_MASK)
         # set max Hatari window size = desktop size
         monitor  = Gdk.Display.get_default().get_primary_monitor()
@@ -386,7 +385,7 @@ class UICallbacks:
     def panel(self, action, box):
         title = action.get_name()
         if title not in self.panels:
-            window = Gtk.Window(Gtk.WindowType.TOPLEVEL)
+            window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
             window.set_transient_for(self.mainwin)
             window.set_icon_from_file(UInfo.icon)
             window.set_title(title)
@@ -409,7 +408,7 @@ class UIActions:
 
         self.help = UIHelp()
 
-        self.actions = Gtk.ActionGroup("All")
+        self.actions = Gtk.ActionGroup(name="All")
 
         # name, icon ID, label, accel, tooltip, callback
         self.actions.add_toggle_actions((
@@ -620,7 +619,7 @@ class UIActions:
             else:
                 item = Gtk.SeparatorMenuItem()
             submenu.add(item)
-        baritem = Gtk.MenuItem(title, False)
+        baritem = Gtk.MenuItem(label=title)
         baritem.set_submenu(submenu)
         bar.add(baritem)
 
@@ -648,11 +647,9 @@ class UIActions:
         accelgroup = None
         # create menu?
         if havemenu:
-            # this would steal keys from embedded Hatari
-            if not embed:
-                accelgroup = Gtk.AccelGroup()
-                for action in self.actions.list_actions():
-                    action.set_accel_group(accelgroup)
+            accelgroup = Gtk.AccelGroup()
+            for action in self.actions.list_actions():
+                action.set_accel_group(accelgroup)
             menu = self._get_menu()
         else:
             menu = None
