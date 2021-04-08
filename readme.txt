@@ -1,4 +1,10 @@
+This is a tweaked version of hatari with better support for French (and other) ATARI keyboards.
+Use keymap option with the doc/fr/clavier-exemple.txt for French keyboard and instructions on how to create a keymap.
 
+Vinz/MPS
+
+Below is the original reame from Hatari
+---
 
                                     Hatari
 
