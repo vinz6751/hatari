@@ -22,9 +22,6 @@
 #include "debugui.h"
 #include "log.h"
 
-/* Highest scancode number. See https://wiki.libsdl.org/SDLScancodeLookup */
-#define MAX_SDLK_SCANCODES 284+1 
-
 /* Scancodes of ST keyboard */
 #define ST_ESC		 0x01
 #define ST_CTRL		0x1d
@@ -48,7 +45,7 @@ struct KeyMapping
 	uint8_t	   PressedModifiers[MAX_ST_SCANCODES];
 };
 static struct KeyMapping LoadedKeyMap[KBD_MAX_SCANCODE];
-static struct KeyMapping KeysDownMapping[MAX_SDLK_SCANCODES]; /* Mappings associated with keys when they're down. The index is the SDL scancode. */
+static struct KeyMapping KeysDownMapping[SDL_NUM_SCANCODES]; /* Mappings associated with keys when they're down. The index is the SDL scancode. */
 
 /* List of ST scan codes to NOT de-bounce when running in maximum speed */
 static const char DebounceExtendedKeys[] =
