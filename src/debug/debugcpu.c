@@ -710,7 +710,7 @@ static int DebugCpu_Continue(int nArgc, char *psArgv[])
 static int DebugCpu_Step(int nArgc, char *psArgv[])
 {
 	nCpuSteps = 1;
-	return DEBUGGER_END;
+	return DEBUGGER_ENDCONT;
 }
 
 
@@ -808,14 +808,14 @@ static int DebugCpu_Next(int nArgc, char *psArgv[])
 		else
 		{
 			nCpuSteps = 1;
-			return DEBUGGER_END;
+			return DEBUGGER_ENDCONT;
 		}
 	}
 	/* use breakpoint, not steps */
 	if (BreakCond_Command(command, false))
 	{
 		nCpuSteps = 0;
-		return DEBUGGER_END;
+		return DEBUGGER_ENDCONT;
 	}
 	return DEBUGGER_CMDDONE;
 }
@@ -916,7 +916,7 @@ void DebugCpu_Check(void)
 	{
 		History_AddCpu();
 	}
-	if (ConOutDevice != CONOUT_DEVICE_NONE)
+	if (ConOutDevices)
 	{
 		Console_Check();
 	}
@@ -934,7 +934,7 @@ void DebugCpu_SetDebugging(void)
 
 	if (nCpuActiveCBs || nCpuSteps || bCpuProfiling || History_TrackCpu()
 	    || LOG_TRACE_LEVEL((TRACE_CPU_DISASM|TRACE_CPU_SYMBOLS|TRACE_CPU_REGS))
-	    || ConOutDevice != CONOUT_DEVICE_NONE)
+	    || ConOutDevices)
 	{
 		M68000_SetDebugger(true);
 		nCpuInstructions = 0;
