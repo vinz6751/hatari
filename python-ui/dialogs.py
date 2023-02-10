@@ -469,16 +469,16 @@ class DisplayDialog(HatariUIDialog):
         slow.set_active(0)
         slow.set_tooltip_text("VBL wait multiplier to slow down emulation. Breaks sound and large enough slowdown causes mouse clicks not to work.")
 
-        maxw, maxh = config.get_max_size()
         topw, toph = config.get_desktop_size()
-        maxadjw = Gtk.Adjustment(maxw, 320, topw, 8, 40)
-        maxadjh = Gtk.Adjustment(maxh, 200, toph, 8, 40)
-        scalew = Gtk.HScale(adjustment=maxadjw)
-        scaleh = Gtk.HScale(adjustment=maxadjh)
-        scalew.set_digits(0)
-        scaleh.set_digits(0)
-        scalew.set_tooltip_text("Preferred/maximum zoomed width")
-        scaleh.set_tooltip_text("Preferred/maximum zoomed height")
+        maxw = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 320, topw, 8)
+        maxh = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 200, toph, 8)
+        maxw.set_tooltip_text("Preferred/maximum zoomed width")
+        maxh.set_tooltip_text("Preferred/maximum zoomed height")
+        confw, confh = config.get_max_size()
+        maxw.set_value(confw)
+        maxh.set_value(confh)
+        maxw.set_digits(0)
+        maxh.set_digits(0)
 
         force_max = Gtk.CheckButton("Force max resolution (Falcon)")
         force_max.set_active(config.get_force_max())
@@ -510,8 +510,8 @@ class DisplayDialog(HatariUIDialog):
              Gtk.STOCK_CANCEL,  Gtk.ResponseType.CANCEL))
 
         dialog.vbox.add(Gtk.Label(label="Max zoomed size:"))
-        dialog.vbox.add(scalew)
-        dialog.vbox.add(scaleh)
+        dialog.vbox.add(maxw)
+        dialog.vbox.add(maxh)
         dialog.vbox.add(force_max)
         dialog.vbox.add(desktop)
         dialog.vbox.add(borders)
@@ -525,13 +525,13 @@ class DisplayDialog(HatariUIDialog):
         dialog.vbox.show_all()
 
         self.dialog = dialog
-        self.skip = skip
-        self.slow = slow
-        self.maxw = maxadjw
-        self.maxh = maxadjh
+        self.maxw = maxw
+        self.maxh = maxh
         self.force_max = force_max
         self.desktop = desktop
         self.borders = borders
+        self.skip = skip
+        self.slow = slow
         self.statusbar = statusbar
         self.led = led
         self.crop = crop
@@ -651,7 +651,8 @@ class PathDialog(HatariUIDialog):
         row = 0
         self.paths = []
         for (key, path, label) in paths:
-            fsel = FselEntry(self.dialog, self._validate_fname, key)
+            label = "%s:" % label
+            fsel = FselEntry(self.dialog, title=label, validate=self._validate_fname, data=key)
             fsel.set_filename(path)
             self.paths.append((key, fsel))
             table_add_widget_row(table, row, 0, label, fsel.get_container())
@@ -703,8 +704,10 @@ class SoundDialog(HatariUIDialog):
         ymmixer.set_active(config.get_ymmixer())
         self.ymmixer = ymmixer
 
-        adj = Gtk.Adjustment(config.get_bufsize(), 0, 110, 10, 10, 10)
-        bufsize = Gtk.HScale(adjustment=adj)
+        bufsize = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 10)
+        for pos in ((0, "auto"), (10, "min"), (100, "max")):
+            bufsize.add_mark(pos[0], Gtk.PositionType.BOTTOM, pos[1])
+        bufsize.set_value(config.get_bufsize())
         bufsize.set_digits(0)
         bufsize.set_tooltip_text("0 = use default value. In some situations, SDL default may cause large (~0.5s) sound delay at lower frequency.  If you have this problem, try with e.g. 20 ms, otherwise keep at 0.")
         self.bufsize = bufsize
@@ -755,61 +758,64 @@ class SoundDialog(HatariUIDialog):
 
 class TraceDialog(HatariUIDialog):
     # you can get this list with:
-    # hatari --trace help 2>&1|awk '/all$/{next} /^  [^-]/ {printf("\"%s\",\n", $1)}'
+    # hatari --trace help 2>&1|awk '/all$/{next} /^  [^-]/ {printf("        \"%s\",\n", $1)}'|sort
     tracepoints = [
-        "video_sync",
-        "video_res",
-        "video_color",
-        "video_border_v",
-        "video_border_h",
-        "video_addr",
-        "video_hbl",
-        "video_vbl",
-        "video_ste",
-        "mfp_exception",
-        "mfp_start",
-        "mfp_read",
-        "mfp_write",
-        "psg_read",
-        "psg_write",
-        "cpu_pairing",
+        "acia",
+        "aes",
+        "bios",
+        "blitter",
         "cpu_disasm",
         "cpu_exception",
-        "int",
-        "fdc",
-        "acia",
-        "ikbd_cmds",
-        "ikbd_acia",
-        "ikbd_exec",
-        "blitter",
-        "bios",
-        "xbios",
-        "gemdos",
-        "vdi",
-        "aes",
-        "io_read",
-        "io_write",
-        "dmasound",
+        "cpu_pairing",
+        "cpu_regs",
+        "cpu_symbols",
         "crossbar",
-        "videl",
-        "dsp_host_interface",
+        "dmasound",
+        "dsp_disasm",
+        "dsp_disasm_mem",
+        "dsp_disasm_reg",
         "dsp_host_command",
+        "dsp_host_interface",
         "dsp_host_ssi",
         "dsp_interrupt",
-        "dsp_disasm",
-        "dsp_disasm_reg",
-        "dsp_disasm_mem",
         "dsp_state",
         "dsp_symbols",
-        "cpu_symbols",
-        "nvram",
-        "scsi_cmd",
-        "natfeats",
-        "keymap",
-        "midi",
+        "fdc",
+        "gemdos",
         "ide",
+        "ikbd_acia",
+        "ikbd_cmds",
+        "ikbd_exec",
+        "int",
+        "io_read",
+        "io_write",
+        "keymap",
+        "mem",
+        "mfp_exception",
+        "mfp_read",
+        "mfp_start",
+        "mfp_write",
+        "midi",
+        "natfeats",
+        "nvram",
         "os_base",
-        "scsidrv"
+        "psg_read",
+        "psg_write",
+        "scsi_cmd",
+        "scsidrv",
+        "vdi",
+        "videl",
+        "video_addr",
+        "video_border_h",
+        "video_border_v",
+        "video_color",
+        "video_hbl",
+        "video_res",
+        "video_ste",
+        "video_sync",
+        "video_vbl",
+        "vme",
+        "xbios"
     ]
     def __init__(self, parent):
         self.savedpoints = None
@@ -942,11 +948,10 @@ class MachineDialog(HatariUIDialog):
         self.memory = table_add_widget_row(table, row, col, "Memory:", combo, fullspan)
         row += 1
 
-        self.ttram = Gtk.Adjustment(config.get_ttram(), 0, 260, 4, 4, 4)
-        ttram = Gtk.HScale(adjustment=self.ttram)
+        ttram = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 512, 4)
         ttram.set_digits(0)
         ttram.set_tooltip_text("TT-RAM needs Falcon/TT with WinUAE CPU core and implies 32-bit addressing.  0 = disabled, 24-bit addressing.")
-        table_add_widget_row(table, row, col, "TT-RAM", ttram, fullspan)
+        self.ttram = table_add_widget_row(table, row, col, "TT-RAM", ttram, fullspan)
         row += 1
 
         label = "TOS image:"
@@ -967,7 +972,7 @@ class MachineDialog(HatariUIDialog):
         table.show_all()
 
     def _fsel(self, label, action):
-        fsel = Gtk.FileChooserButton(label)
+        fsel = Gtk.FileChooserButton(title=label)
         # Hatari cannot access URIs
         fsel.set_local_only(True)
         fsel.set_width_chars(12)

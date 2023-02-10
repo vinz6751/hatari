@@ -22,6 +22,8 @@ endif(NOT CMAKE_BUILD_TYPE)
 
 # set(CMAKE_VERBOSE_MAKEFILE 1)
 
+find_package(PkgConfig)
+
 
 ######################################################################
 # Check if Large File Support is available
@@ -167,13 +169,11 @@ if(DETECTED_LFS_CFLAGS)
 endif(DETECTED_LFS_CFLAGS)
 
 # Additional CFLAGS suggested by the SDL library:
-execute_process(COMMAND pkg-config --cflags-only-other sdl2
-		OUTPUT_VARIABLE DETECTED_SDL_CFLAGS
-		ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
-if(DETECTED_SDL_CFLAGS)
-	add_definitions(${DETECTED_SDL_CFLAGS})
-	# message(STATUS "Additional CFLAGS of SDL: ${DETECTED_SDL_CFLAGS}")
-endif(DETECTED_SDL_CFLAGS)
+if(PKG_CONFIG_FOUND)
+	execute_process(COMMAND ${PKG_CONFIG_EXECUTABLE} --cflags-only-other sdl2
+			OUTPUT_VARIABLE SDL2_OTHER_CFLAGS
+			ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+endif(PKG_CONFIG_FOUND)
 
 if(ENABLE_OSX_BUNDLE)
 	# Use OSX native alert windows
@@ -182,6 +182,10 @@ if(ENABLE_OSX_BUNDLE)
 	add_definitions(-DSDL_MAIN_NEEDED=1)
 endif(ENABLE_OSX_BUNDLE)
 
+if(MSVC)
+	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+endif(MSVC)
+
 # ###########################
 # Check for optional headers:
 # ###########################
@@ -189,7 +193,6 @@ endif(ENABLE_OSX_BUNDLE)
 check_include_files(termios.h HAVE_TERMIOS_H)
 check_include_files(sys/ioctl.h HAVE_SYS_IOCTL_H)
 check_include_files(strings.h HAVE_STRINGS_H)
-check_include_files(malloc.h HAVE_MALLOC_H)
 check_include_files(${SDL2_INCLUDE_DIR}/SDL_config.h HAVE_SDL_CONFIG_H)
 check_include_files(sys/time.h HAVE_SYS_TIME_H)
 check_include_files(sys/times.h HAVE_SYS_TIMES_H)

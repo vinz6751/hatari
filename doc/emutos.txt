@@ -366,6 +366,7 @@ Demos:
 - Beast Scroll (by Joefish)
 - Beefect (by Effect)
 - Beyond Imagination (by NLC), in GFA basic
+- Bread and Circuses (by Effect)
 - Breath (by Mystic Bytes)
 - Calimer-o-demo (by Oxygene)
 - Charts Compilation (by Next)
@@ -374,6 +375,7 @@ Demos:
 - Coolism (music disk, by Effect)
 - Crisis (by Joska)
 - Cross the Deserts (by Chronicle) - one screen gfx is partly corrupted
+- Crowd Teaser (by SMFX)
 - Cuddly Demos (by CareBears)
 - Darktrip (by Legend), doesn't work with >2MB of RAM
 - Dark Side of the Spoon (by ULM)
@@ -382,15 +384,20 @@ Demos:
 - Death of the Clock Cycles (by Aggression)
 - Delusion (by MJJ Prod)
 - Dimensio (by Condemned)
+- Done & Dusted (by Genesis Project)
+- DragonST (256b intro by atariBDSM)
 - Eat my bollocks (by Equinox)
 - Execution (by SMFX)
 - Fantasia (by Dune & Sector One)
 - Flashback (by Carebears)
+- Flexiscroll 2021 (64k by Effect)
 - Flipo (by Oxygene)
 - Frenchies (by Frenchies, 96KB intro)
+- Fruit is Great! (256b 50Hz overscan by Effect)
 - Glokzilla (by MJJ Prod)
 - Grafik -und Sounddemo (by Eckhard Kruse), font issues
 - Hallucinations (by Reservoir Gods)
+- Helvetin Hyttysiä (by Spice Boys)
 - Hiatus (by SMFX)
 - Hatari 2.2 intro (by Mr.Styckx)
 - If pigs could fly (by Syndicate)
@@ -419,6 +426,7 @@ Demos:
 - Pandemonium (by Chaos)
 - Panic (Paolo Simoes)
 - Paradise (by Dune Design)
+- Pause (by Cerebral Vortex / Dekadence / SMFX)
 - Phaleon Gigademo (by Next), select "fast loader"
 - Posh (by Checkpoint)
 - POV disk 165 (except for EiL 99 invite)
@@ -427,6 +435,7 @@ Demos:
 - Recycles (by SMFX)
 - Remote Entry #2 - 11110 Edition (by Spice Boys)
 - Remote Entry #2 - Delta Quadrant Edition (by Spice Boys)
+- Renegade Breakdown - Sommarhack 2021 invitro (by Spkr / SMFX)
 - RGB plasma (by Omega, panic at return to desktop)
 - Santa Claus Barbie Was Drunk As A Cochon (by MJJ Prod)
 - Save The Earth (by Defence Force)
@@ -436,6 +445,8 @@ Demos:
 - SillyVenture 2020 (invitro by Agenda, Hemoroids & Mystic Bytes)
 - Smag-FX 3 (by SMFX)
 - Sommar TTRAK (TTRAK v1.00 intro)
+- Sommarhack 1991 Best Of (by Pepe)
+  - Glitches are intentional, not EmuTOS issue
 - Sommarhack 2011 (invite by DHS)
 - Soundtracker (by Equinox)
 - SoWatt (by CareBears)
@@ -454,12 +465,15 @@ Demos:
 - The Puppet Show (by Fantasy & Dune)
 - The Stupendous Demo (by Pixel Twins, has couple of STE screen)
 - The Union demo (by The Union)
+- The Truth (by Dekadence)
 - The twist (by Team "The twist")
 - The World According to Nordlicht
 - Transbeauce II (by BushWacKers)
 - Tut! (by Wildfire)
 - Twelve (by Paulo Simoes)
+- TwiSTy (256b intro by Ultra / Cream)
 - Two in One (by DHS)
+- Unbelievable (by Masters Of Electric City)
 - Unreachable (by MoEC & Sector One)
 - Unstatic (by Cyprian, Dma-Sc & bob_er)
 - Virtual (by Equinox)
@@ -469,6 +483,8 @@ Demos:
 - We do not rip or recycle anything (by Spice Boys)
 - Yanartas (by Checkpoint)
 - YmRockerz musicdisks from "Wave upon Wave" to "Seven"
+- X-files (by Martin Cubitt, in STOS)
+  - Error #046 => run from desktop instead of auto/-folder
 - Xmas2000 (by Paranoid)
 
 Color toys:
@@ -574,7 +590,7 @@ Free/shareware/PD games:
 - Droid          (floppy only, bootsector has 0 for reserved sectors)
 - Droid 2*       (floppy only)
 - Entombed
-  - doesn't show title, copyright, hiscore nor help after EmuTOS v0.8.6
+  - Does not show title, copyright, hiscore nor help after EmuTOS v0.8.6
   - TOS v2 shows title but not others and sound is wrong
 - Flip'em*       (4KB puzzle)
 - Fokker         (2-player biplanes, use joystick 0)
@@ -785,6 +801,28 @@ Mono/GEM toys:
 - Worm farm
 
 
+Broken floppy demos
+-------------------
+
+- Amiga demo (by Exceptions)
+  - bus errors before *any* OS calls
+- B.I.G demo (by Exceptions)
+  - bus errors before *any* OS calls
+- Froggies over the Fence ()
+  - Line-F panic, earlier bus error at $400000 after first OS call:
+    Rwabs(0,0x30000,8,1,0)
+  - with high-RAM etos512, complains about 1/2 MB RAM
+- Place to be (by EKO)
+  - with 192k, black screen / panic at start
+  - with cart, bus errors after intro screens
+- Things not to do (by Inner Circle) - NULL pointer access at 0x7d80a
+  - Floprd(0x7d800, 252, 2, 0, 0, 9)
+- Swedish New Year (by CareBears) - panic at 0x7006 after first OS call
+  - Floprd(0x7000, 0, 1, 79, 0, 9)
+- WhattaHeck (by CareBears) - panic at 0x7000 after first OS call
+  - Floprd(0x7000, 0, 2, 0, 0, 1)
+
+
 Atari ST games with broken input handling
 -----------------------------------------
 
@@ -961,6 +999,7 @@ Demos:
 - Necrosys (by Hemoroids)
 - New Year -94 Intro (by Extream)
 - No Monkey (by Tomchi)
+- No Signal (ADPCM musicdisk by DHS)
 - Pacemaker (by Paradox), end part works only from floppy image
 - Paracon 6 & 7 remindtros (by Paradox)
 - Parallax Distorter 2 (by Solomon)
@@ -989,6 +1028,7 @@ Demos:
 - Takeover (by Lamers)
 - TalkTalk2 (by XiA)
 - Techno drugs (by NLC)
+- The Star Wars Demo (by The Arctic Land)
 - Time Slices (by Defence Force)
 - Tribute to Rainbow TOS (by 505 & Tobe)
 - Tyranny (by DHS)
@@ -1018,12 +1058,14 @@ Color games:
 - Breakdance (scene game, STOS)
 - ChuChu Rocket* (RG's full version)
 - Crash Time Plumber
+- Dread* (playable Wolf3D clone demo v1905)
 - Droid STE rewrite
 - Dynabusters+*
 - Frantick
 - Giana Sisters STE rewrite:
   http://atari-forum.com/viewtopic.php?f=3&t=26360
 - H Mec 2 (line-A bitblit)
+- Metal Slug STE (mission 1)
 - Micromachines preview (by .tscc)
 - Mr Boomer (line-A bitblit)
 - No Limit II (shareware pinball)
@@ -1191,11 +1233,11 @@ Working demos (comments are for EmuTOS v1.0 or older):
 - Bound (by Crac)
   - DSP sound effect requires >v1.0, startup texts need HiColor
 - Bugs from outer space (by Impulse)
-  - bad sound
+  - Bad sound
 - Cebit 93 (by Respectables)
 - Chrome Dragon (by Opium)
 - Cooler than ever (by ICE)
-  - bad sound
+  - Bad sound
 - DBA Magazine 14 intro (by Lazer)
 - Earth (by Gaston)
 - Falcon Flight (by Opium)
@@ -1204,10 +1246,10 @@ Working demos (comments are for EmuTOS v1.0 or older):
 - Fungle beats (by FUN)
 - Game of Life 4k (by Aggression)
 - Gourand triangles demos (by ray//.tSCc)
-  - these have asm sources!
+  - These have asm sources!
 - Gurkensalat (by Lazer)
 - Illusion 64 (by Paranoia)
-  - plasma screen has garbage on right side,
+  - Plasma screen has garbage on right side,
     end screen at top & bottom
 - ImPerfect (by XI / Satantronic)
 - It's that time of the year again (by New Beat)
@@ -1229,7 +1271,7 @@ Working demos (comments are for EmuTOS v1.0 or older):
 - RGB Reine (by New Beat)
 - Rock Solid (by Paranoia)
 - Schlumpf invtro (by Lazer)
-  - horizontal scrolling is bad with some EmuTOS versions
+  - Horizontal scrolling is bad with some EmuTOS versions
 - She danced to Tainted Love (musicdisk by tSCc)
   - MP2 DSP music requires >v1.0
 - Six Sievert (by tSCc)
@@ -1238,17 +1280,17 @@ Working demos (comments are for EmuTOS v1.0 or older):
   - works before v0.9.1, but without sounds
 - STrEet figher II (by Patrice Mandin)
 - Terrorize Your Soul (by tSCc)
-  - fonts and colors aren't right on all screens
+  - Fonts and colors are not right on all screens
 - Tiny Things (no music as it's on DSP)
 - Videl visions slideshow
 - Virtual City, needs DSP
-  - freezes at exit
+  - Freezes at exit
 - Warum (by Lazer)
 - Weltchmerz (by Avena)
 - Why (by Extream)
 - ZZ 9 Plural Z Alpha (by tSCc)
 
-Demos working in EmuTOS >v1.0 (with DSP support):
+Demos working under EmuTOS >= v1.1 (with DSP support):
 - 4kbtro (by Wilfire)
 - 96ktro (by Cruor)
 - Aggressive Party 2 4k (NoCrew)
@@ -1259,27 +1301,34 @@ Demos working in EmuTOS >v1.0 (with DSP support):
 - Bound 42 (by MMJ Prod)
 - Built-in Obsolescence (by Digital Chaos)
 - Chaos A.D. (by DNT crew)
+- Codein (060, by DHS)
 - Cycedelic knockout (by Mugwumps)
 - Dan's Lustiges Kinderfest (by Lazer)
+- Derealization (060, by DHS)
 - Enraged (by Avena)
 - Ex Illusion (by Aura)
+- F22.0 (060, by Lamers)
 - FOG-intro (by Psychosis)
+- Hex Pistols (060, by Fit)
 - Hmmm... (by Escape)
-- Illness (by Escape)
-- JESTERday (by POV), musicdemo
-- Motion (unfinished demo by Aggression)
 - I want you to remember (by KÜA Software & Pixel Twins)
   - Monochrome, with DSP music
+- Illness (by Escape)
+- JESTERday (by POV), musicdemo
+- Lamer than Lamers (060, by Lamers)
+- Motion (unfinished demo by Aggression)
+- No Signal (MP2 musicdisk by DHS)
 - Papa was a Blade Runner (by EKO)
 - ROT3DBMP
+- Shades of Circuits (v1.1 musicdisk by Dry Bone Records)
+  - Works also with EmuTOS v1.0, but startup texts look bad
 - Sidetracked (by Collapze)
 - Silly Venture 2k14 invitro (by Dune / Sector One)
 - Silly Venture 2k16 invitro (by Dune / Mystic Bytes)
 - Silly Venture 2k19 invitro (by Mystic Bytes)
-- Stercus Accidit (by Fit)
-  - Worked with the (removed) oldUAE CPU core
+- Stercus Accidit (060, by Fit)
 - Stocasto (by NoCrew)
-  - works also with v1.0, but then DSP 3D objects are missing
+  - Works also with v1.0, but then DSP 3D objects are missing
 - Tere Ra'I (by Cerebral Vortex / Dune / Sector One)
 - The mountains flight (by Cruor)
 - The Ultimate Seduction (Sommarhack 2020 invite)
@@ -1294,35 +1343,38 @@ Demos working in EmuTOS >v1.0 (with DSP support):
 - Yepyha (by Toons)
 - Zero Three Zero (by The Pixel Twins)
 
-Partly working demos (>v1.0):
+Demos working partly under EmuTOS >= v1.1:
 - Doomino (by STAX)
   - Info screen at start looks just garbage (HiColor?)
 
-Broken demos (even with EmuTOS >1.0):
+Broken demos (with EmuTOS v1.1.x):
 - '_' (by Escape)
-  - Crashes in first screen
+  - Crashes after first few screens
 - GEM demo (by DHS & AssemSoft):
-  - needs HiColor mode
+  - Needs HiColor mode
+- Spin176 (256b intro by MKM / Lamers)
+  - Needs FPU & HiColor mode
 - Who Okayed This?
-  - Fixed Epidemic music disk and its intro bus error panic,
-    the new intro before them works
+  - Both the new and (fixed) old intros (epidemic.prg) do work,
+    (fixed) music disk (zikdisk.prg) panics to bus error
 
 
 Falcon games
 ............
 
-Working games (comments are for EmuTOS v1.0 or older):
+Working games (DSP comments are for EmuTOS v1.0 or older):
 - Aces High (preview)
 - BeGEMeD* (Falcon version)
 - Block Blizzard preview (line-A bitblit + hide cursor / show mouse)
 - Blum
 - Cavemania (demo version)
-- Chainz:
-  - vga, press space at start to disable DSP use
+- Chainz (VGA only):
+  - Press space at start to disable DSP use
 - Chorensha (old, non-DSP version)
 - Corsair
 - DB 4K
-- Double Bobble 2000* (by Reservoir Gods), disable DSP
+- Double Bobble 2000* (by Reservoir Gods)
+  - Disable DSP
 - Dry Egg (needs >4MB RAM)
 - FalcTron
 - Galaga 88
@@ -1331,16 +1383,17 @@ Working games (comments are for EmuTOS v1.0 or older):
 - Heretic (very slow)
 - Hexogan (use number pad)
 - Impulse* (Breakout clone)
-- Jeu de Poker
-  - needs 640x480@256 VGA mode
-- Jewelz
-  - vga, select hatari mode (F2)
+- Jeu de Poker (VGA only)
+  - Needs 640x480@256 mode
+- Jewelz (VGA only)
+  - Select hatari mode (F2) to disable DSP music
 - King Solitaire
 - Lamemine
 - L'Abbaye Des Morts
 - Let's play Shanghai
-  - needs 640x400@256 mode
-- LlamaZap free version (requires joypad, not joystick)
+  - Needs 640x400@256 mode
+- LlamaZap (free version)
+  - Requires joypad, not joystick
 - Madtris
 - Masters of Chaos (multiplayer "dungeon master")
 - Nibe
@@ -1351,10 +1404,11 @@ Working games (comments are for EmuTOS v1.0 or older):
 - Running* (demo version)
 - Radical* Race (demo)
 - Raiden
-- Risk 030 demo
-  - Needs 640x480@16 VGA mode
+- Risk 030 demo (VGA only)
+  - Needs 640x480@16 mode
 - Spice* (Defender clone)
-- Static (Patience by Reservoir Gods), disable DSP
+- Static (Patience by Reservoir Gods)
+  - Disable DSP
 - Steinbruch
 - Sweety Things
 - Switch
@@ -1363,17 +1417,18 @@ Working games (comments are for EmuTOS v1.0 or older):
 - Tautology II* (by Reservoir Gods)
 - Toy Man
 - Ultimate Arena Falcon edition:
-  - doesn't recognize it's on Falcon -> select "Test"
-  - crashes sometimes
+  - Does not recognize it's on Falcon -> select "Test"
+  - Crashes sometimes
 - Vertical Mayhem(+)* (Columns clone)
 - Vroom 030 (too fast)
-- Willie's Adventure (preview1), disable DSP
+- Willie's Adventure (preview1)
+ - Disable DSP
 - Willie's Adventure* (preview2)
 - X-moon preview* (music with DSP)
 - Zodiax (Falcon "R-type")
-    start from 640x400@16
+  - Start from 640x400@16
 
-Games working under EmuTOS >v1.0 (with DSP support):
+Games working under EmuTOS >= v1.1 (with DSP support):
 - Aazohm Krypth
 - Bad Mood (90's demo)
 - Bad Mood* (v0.37 game from 2017)
@@ -1382,6 +1437,7 @@ Games working under EmuTOS >v1.0 (with DSP support):
 - Crown of Creation (preview)
 - Des Lazers & des Hommes
 - Epi-Lepsie (by PARX)
+- Gold island (demo, VGA only)
 - H2O* (by EKO)
 - Kwiks* (by Digital Nightmares)
 - Les Dinosaures (v1.02 demo by PARX)
@@ -1409,59 +1465,57 @@ Games working with extra hacks:
 Partly working games:
 - Bomb Squad
   - Game is 4x slower than with TOS4 (see EmuTOS incompatible.txt)
-- Men at War
-  - Unlike with TOS4, men.prg works only when started by mawintro.prg
 - Painium
-  - fire button works only until game itself starts
-  - Needs at least 8MB RAM
+  - Fire button works only until game itself starts
+  - Works only with 8MB RAM
 
-Broken games (even with EmuTOS >1.0):
+Broken games (with EmuTOS v1.1.x):
 - Columns by Deadheart* (demo)
-  - broken graphics (needs HiColor?)
+  - Broken graphics (needs HiColor?)
 - Confusion demo 1 & 2:
-  - freeze at start to black screen
+  - Freeze at start to black screen
 - Conquest of Elysium II:
-  - broken graphics (needs HiColor?)
+  - Broken graphics (needs HiColor?)
 - Downfall
   - Complains about "Error while loading BLACKWHT.BGR", but actually
     fails to Setscreen(0xDB4F00, 0xDB4F00, 0xFFFF) -> needs HiColor
-- Gold island (demo, vga only)
-  - some blits are just opaque red
 - Gravon (demo)
-  - crashes at start, requires HiColor
+  - Bus error panic at start, requires HiColor
 - It's Great (start from st-med rez)
-  - mouse doesn't work
+  - Mouse doesn't work
 - "K" preview* (by EXA)
-  - bus error writing $f8f9faf7 at kart race start
+  - Freezes when game would start
 - Killing Impact
-  - address error panic when actual game would start
+  - Address error panic when actual game would start
+- Men at War
+  - Freezes when doing Supexec() after loading "field1.m2f" file
 - Moongame
-  - colors and graphics wrong (HiColor?)
+  - Broken graphics (needs HiColor?)
 - Moonspeeder (preview 2)
-  - broken graphics (needs HiColor?)
+  - Broken graphics (needs HiColor?)
 - Mouse trap
-  - NULL pointer bus error at start, panic & reboot
+  - Broken graphics (needs HiColor?)
 - Neurobot
-  - just exits immediately
+  - Both intro & game just exit immediately
 - Rave*
-  - broken graphics (needs HiColor?)
-  - in v0.8.6, only at lower half during actual game
+  - Broken graphics (needs HiColor?)
+    - In v0.8.6, only at lower half during actual game
 - Reeking Rubber
-  - broken graphics & termination on actual game start (HiColor?)
+  - Broken graphics & termination on actual game start (HiColor?)
 - SBM v0.8 & v1.03* (Bomberman clone)
-  - panic and wrong graphics
+  - Panic and wrong graphics
 - ScummVm (OL version)
-  - broken graphics (HiColor?)
+  - Broken graphics (needs HiColor?)
 - Slippery Sam
-  - freezes at start (queries e.g. DSP reg $FFA206)
+  - Freezes at start (queries e.g. DSP reg $FFA206)
 - Tetrhex (1.41)
   - Panic on trying to overwrite ROM after VsetScreen(0x0, 0x0, 3, 0x14B)
-- Tron 2
-  - bus error panic on startup
+- Tron 2 (VGA only)
+  - Illegal instruction after reading "tjip.mod" -> panic
 - TsccTron
-  - bus error reading at address $0 on startup
-- Watership (vga)
-  - bus error panic on startup
+  - Bus error writing to address $0 on startup
+- Watership (VGA only)
+  - Bus error reading $fffffffe on startup -> panic
 
 
 Falcon applications
@@ -1479,7 +1533,7 @@ Working applications:
 - Rainbow 2 multimedia, needs MMU
 - Smurf (GEM image viewer)
 
-Application working under EmuTOS >v1.0 (with DSP support):
+Applications working under EmuTOS >= v1.1 (with DSP support):
 - AceMidi demo (v1.01)
 - AceTracker v1 & v2
 - AFM (audio fun machine)
@@ -1496,17 +1550,26 @@ Application working under EmuTOS >v1.0 (with DSP support):
   - http://yescrew.atari.org/eng/products.htm
 - Graoumf Tracker (v0.8890)
 - Iphigenie v1.4b (sound system monitor and manager / DSP LOD loader)
-- MP2AUDIO player:
-  - outlines (3D look) missing from buttons in the UI
-  - Needs to be started from 640x400 or larger resolution, otherwise it
-    positions itself completely outside the screen (also with TOS v4)
 - Voxx (vocoder), demo and free version
   - GUI looks OK, no idea about actual functionality
   - Needs at minimum 640x480x16 color VGA resolution
 - Whip! (virtual light machine)
   - mic input not tested
-- Winrec (direct to disk GEM audio recorder/effects)
+- WinRec (direct to disk GEM audio recorder/effects)
   - Starts fine and GUI works, actual recording not tested
+
+Applications working under EmuTOS > v1.1.1:
+- Escape paint (GEM, requires color icons support)
+  - Correct window management needs EmuTOS Git version
+- FalcAMP (GEM, requires DSP & color icons support)
+  - 3D look in icons & text in some dialogs needs EmuTOS Git version
+- MP2AUDIO player
+  - 3D look in icons needs EmuTOS Git version
+  - Needs to be started from 640x400 or larger resolution, otherwise it
+    positions itself completely outside the screen (also with TOS v4)
+- Videl Inside (v1.2)
+  - EmuTOS Git version (with Srealloc() support) is needed to avoid
+    desktop crash with modes larger than earlier static screen alloc
 
 Applications working with extra hacks:
 - Fractal Playground, Godleness, GodBoyX by Reservoir Gods
@@ -1525,22 +1588,14 @@ Partly working applications:
   - Works with MMU + FPU + VGA
   - Requires HiColor with RGB?
 - AVI030
-  - Extra text cursors visible on screen and panics after video exits
-    (HiColor support?)
-- FalcAMP (GEM, requires DSP & color icons support)
-  - 3D look missing from icons, and text from plugins dialog
-- Escape paint (GEM, requires color icons support)
-  - Setting windows can't be moved, their titlebars and borders aren't
-    refreshed when exposed, and few of the settings windows don't come
-    on screen
-
-Broken applications (even with EmuTOS >v1.0):
+  - All videos do not work (HiColor support?)
 - Centview (GEM image viewer)
-  - Crashes to NULL pointer access when viewing image
-  - Requires HiColor
+  - Crashes to bus error when trying to view >256 color images
+
+Broken applications (with EmuTOS v1.1.1):
 - Indypaint
-  - cursor moves, but screen is black, F1-F4 keys don't work
-  - requires HiColor
+  - Cursor moves, but screen is black, F1-F4 keys don't work
+  - Requires HiColor
 
 
 	- Eero
