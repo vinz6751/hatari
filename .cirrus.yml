@@ -91,7 +91,7 @@ msys2_task:
     - C:\tools\msys64\usr\bin\bash -lc "cmake -G 'MSYS Makefiles' ."
     - C:\tools\msys64\usr\bin\bash -lc "make -j4"
   binary_artifacts:
-    path: "hatari.exe" 
+    path: "src\hatari.exe"
   test_script:
     - C:\tools\msys64\usr\bin\bash -lc "ctest"
 
