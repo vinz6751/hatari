@@ -1056,11 +1056,22 @@ static void set_x_funcs (void)
 				x_get_word = get_word_dc030;
 				x_get_byte = get_byte_dc030;
 			}
-
 		}
-		x_do_cycles = do_cycles;
-		x_do_cycles_pre = do_cycles;
-		x_do_cycles_post = do_cycles_post;
+		if (currprefs.cpu_cycle_exact) {
+#ifndef WINUAE_FOR_HATARI
+			x_do_cycles = do_cycles_ce020;
+			x_do_cycles_pre = do_cycles_ce020;
+			x_do_cycles_post = do_cycles_ce020_post;
+#else
+			x_do_cycles = do_cycles_ce020_long;
+			x_do_cycles_pre = do_cycles_ce020_long;
+			x_do_cycles_post = do_cycles_ce020_post;
+#endif
+		} else {
+			x_do_cycles = do_cycles;
+			x_do_cycles_pre = do_cycles;
+			x_do_cycles_post = do_cycles_post;
+		}
 	} else if (currprefs.cpu_model < 68020) {
 		// 68000/010
 		if (currprefs.cpu_cycle_exact) {
@@ -4049,8 +4060,8 @@ static void m68k_reset_restore(void)
 void REGPARAM2 op_unimpl (uae_u32 opcode)
 {
 	static int warned;
-	if (warned < 20) {
-		write_log (_T("68060 unimplemented opcode %04X, PC=%08x\n"), opcode, regs.instruction_pc);
+	if (warned < 1000) {
+		write_log (_T("68060 unimplemented opcode %04X, PC=%08x SP=%08x\n"), opcode, regs.instruction_pc, regs.regs[15]);
 		warned++;
 	}
 	ExceptionL (61, regs.instruction_pc);
@@ -6065,7 +6076,7 @@ static void opcodedebug (uae_u32 pc, uae_u16 opcode, bool full)
 		TCHAR buf[100];
 		if (full)
 			write_log (_T("mmufixup=%d %04x %04x\n"), mmufixup[0].reg, regs.wb3_status, regs.mmu_ssw);
-		m68k_disasm_2 (buf, sizeof buf / sizeof (TCHAR), addr, NULL, 1, NULL, NULL, 0xffffffff, 0);
+		m68k_disasm_2(buf, sizeof buf / sizeof (TCHAR), addr, NULL, 0, NULL, 1, NULL, NULL, 0xffffffff, 0);
 		write_log (_T("%s\n"), buf);
 		if (full)
 			m68k_dumpstate(NULL, 0xffffffff);
@@ -7612,20 +7623,26 @@ void m68k_disasm_ea (uaecptr addr, uaecptr *nextpc, int cnt, uae_u32 *seaddr, ua
 {
 	TCHAR *buf;
 
-	buf = xcalloc (TCHAR, (MAX_LINEWIDTH + 1) * cnt);
+	if (!cnt)
+		return;
+	int pcnt = cnt > 0 ? cnt : -cnt;
+	buf = xcalloc (TCHAR, (MAX_LINEWIDTH + 1) * pcnt);
 	if (!buf)
 		return;
-	m68k_disasm_2 (buf, MAX_LINEWIDTH * cnt, addr, nextpc, cnt, seaddr, deaddr, lastpc, 1);
+	m68k_disasm_2(buf, MAX_LINEWIDTH * pcnt, addr, NULL, 0, nextpc, cnt, seaddr, deaddr, lastpc, 1);
 	xfree (buf);
 }
 void m68k_disasm (uaecptr addr, uaecptr *nextpc, uaecptr lastpc, int cnt)
 {
 	TCHAR *buf;
 
-	buf = xcalloc (TCHAR, (MAX_LINEWIDTH + 1) * cnt);
+	if (!cnt)
+		return;
+	int pcnt = cnt > 0 ? cnt : -cnt;
+	buf = xcalloc (TCHAR, (MAX_LINEWIDTH + 1) * pcnt);
 	if (!buf)
 		return;
-	m68k_disasm_2 (buf, MAX_LINEWIDTH * cnt, addr, nextpc, cnt, NULL, NULL, lastpc, 0);
+	m68k_disasm_2(buf, MAX_LINEWIDTH * pcnt, addr, NULL, 0, nextpc, cnt, NULL, NULL, lastpc, 0);
 	console_out_f (_T("%s"), buf);
 	xfree (buf);
 }
@@ -7637,7 +7654,7 @@ void m68k_disasm_file (FILE *f, uaecptr addr, uaecptr *nextpc, uaecptr lastpc, i
 	if (!buf)
 		return;
 	console_out_FILE = f;
-	m68k_disasm_2 (buf, MAX_LINEWIDTH * cnt, addr, nextpc, cnt, NULL, NULL, lastpc, 0);
+	m68k_disasm_2(buf, MAX_LINEWIDTH * cnt, addr, NULL, 0, nextpc, cnt, NULL, NULL, lastpc, 0);
 	f_out (f, _T("%s"), buf);
 	xfree (buf);
 	console_out_FILE = NULL;
@@ -10437,7 +10454,7 @@ void mem_access_delay_long_write_c040 (uaecptr addr, uae_u32 v)
 		wait_cpu_cycle_write_ce020 (addr + 2, 1, (v >>  0) & 0xffff);
 		break;
 	case CE_MEMBANK_CHIP32:
-		if ((addr & 3) == 3) {
+		if ((addr & 3) != 0) {
 			wait_cpu_cycle_write_ce020 (addr + 0, 1, (v >> 16) & 0xffff);
 			wait_cpu_cycle_write_ce020 (addr + 2, 1, (v >>  0) & 0xffff);
 		} else {
@@ -10446,7 +10463,7 @@ void mem_access_delay_long_write_c040 (uaecptr addr, uae_u32 v)
 		break;
 	case CE_MEMBANK_FAST16:
 		put_long (addr, v);
-		do_cycles_ce020_mem (2 * CPU020_MEM_CYCLE, v);
+		do_cycles_c040_mem(1, v);
 		break;
 	case CE_MEMBANK_FAST32:
 		put_long (addr, v);

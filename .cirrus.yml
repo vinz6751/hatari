@@ -31,10 +31,10 @@ freebsd_task:
 
 macos_task:
   osx_instance:
-    image: ghcr.io/cirruslabs/macos-ventura-base:latest
+    image: big-sur-base
   install_script:
     - brew update
-    - brew install sdl2 libpng make tidy-html5 imagemagick capstone
+    - brew install sdl2 libpng make tidy-html5 imagemagick
   script:
     - export PATH=/usr/local/bin:$PATH
     - ./configure --disable-osx-bundle --enable-debug
@@ -85,6 +85,7 @@ msys2_task:
          mingw-w64-x86_64-gcc
          mingw-w64-x86_64-SDL2
          mingw-w64-x86_64-libpng
+         mingw-w64-x86_64-portaudio
          mingw-w64-x86_64-portmidi"
   script:
     - C:\tools\msys64\usr\bin\bash -lc "cmake -G 'MSYS Makefiles' ."
@@ -120,7 +121,9 @@ visualstudio_task:
   script:
     - refreshenv
     - cmake -G "Visual Studio 16 2019" -A X64 -DCMAKE_BUILD_TYPE="Release"
-            -DSDL2_DIR:PATH=SDL2-2.24.0\cmake .
+        -DSDL2_INCLUDE_DIR="%cd%\SDL2-2.0.14\include"
+        -DSDL2_LIBRARY="%cd%\SDL2-2.0.14\lib\x64\SDL2.lib"
+        -DSDL2MAIN_LIBRARY="%cd%\SDL2-2.0.14\lib\x64\SDL2main.lib" .
     - cmake --build . --verbose --target ALL_BUILD --config Release -j4
   test_script:
     - refreshenv

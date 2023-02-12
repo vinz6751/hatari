@@ -14,6 +14,8 @@ Following features are deprecated and will be removed in a future release:
 - Hatari XBios(255) API enabled with the "--bios-intercept" option
   (i.e. use "--natfeats" & "--cmd-fifo" options and "hconsole" instead)
 - The old ~/.hatari configuration file location (use ~/.config/hatari instead)
+- The rendering functions for 16 bits-per-pixel host screens (almost all
+  recent hardware should have 32 bpp nowadays)
 
 Removed features (that were marked as deprecated in earlier releases):
 - Support for the SDL 1.2 library (i.e. SDL 2.x should be used instead)
@@ -21,9 +23,17 @@ Removed features (that were marked as deprecated in earlier releases):
 - Python v2 support in Python scripts (Python 2 was end of life in 2020)
 
 Emulation:
-- Improved DSP interrupts handling (from Previous NeXT emulator)
+- CPU:
+  - Improved FPU instruction emulation (from WinUAE emulator)
+- DSP:
+  - Improved interrupts handling (from Previous NeXT emulator)
+- Sound:
+  - Improve accuracy of YM2149's sample generation by using the main
+    CPU clock as a reference for all timings
 
 Emulator:
+- TOS support:
+  - Support 1024k EmuTOS images also on TT & Falcon
 - Falcon:
   - Fix: restore zoom mode correctly when loading snapshots
   - Correct also smaller specified memory amounts to valid ones
@@ -31,10 +41,38 @@ Emulator:
   - Add VME/SCU registers "--vme <none|dummy>" access option
     (needed to support both Linux and TOS v2 & v3 until Hatari
     implements real VME/SCU register emulation)
+- SDL GUI:
+  - Fix: ignore unrecognized events in file selector
+    (buttons could be incorrectly shown as selected)
 - GEMDOS HD:
   - Fix: clear GEMDOS Fread / Fwrite errors
 - Debugger:
-  - Add "info vme" and VME/SCU reg access tracing support
+  - Repeat CPU & DSP "step" and "next" commands on Enter
+  - More readable "variables" command output
+  - Add "info vme" command
+  - Add "scc" and "vme" (VME/SCU reg access) tracing support
+  - Setting trace to "none" disables also xconout console output
+    enabled by "os_base" trace option
+  - "next subreturn" will run until current function returns,
+    even if function calls other functions before that
+  - Symbol loadind code is now shared between debugger "symbols"
+    command & "gst2ascii" tool, and it can now read also long
+    symbol names from Pure-C debug information
+  - Auto-detection for whether section offsets should be used
+    for symbol addresses
+  - Trace options are listed in alphabetical order
+- Windows:
+  - Next/prev drive change buttons added to SDL GUI file select dialog
+
+Tools:
+- TOS boot tester: support 1024k EmuTOS images, misc fixes
+
+Documentation:
+- Compatibility updates, especially for 060 programs that need
+  FPSP060.PRG for missing instructions emulation
+
+Fixed programs:
+- maxYMiser FM v1.53 by gwEn (support for syncsquare effect)
 
 
  Version 2.3.1 (2020-12-27)

@@ -306,13 +306,8 @@ void MemorySnapShot_Capture(const char *pszFileName, bool bConfirm)
 	strlcpy ( Temp_FileName , pszFileName , FILENAME_MAX );
 	Temp_Confirm = bConfirm;
 
-#ifndef WINUAE_FOR_HATARI
-	/* With old cpu core, capture is immediate */
-	MemorySnapShot_Capture_Do ();
-#else
 	/* With WinUAE cpu core, capture is done from m68k_run_xxx() after the end of the current instruction */
 	UAE_Set_State_Save ();
-#endif
 //fprintf ( stderr , "MemorySnapShot_Capture out\n" );
 }
 
@@ -403,15 +398,10 @@ void MemorySnapShot_Restore(const char *pszFileName, bool bConfirm)
 	strlcpy ( Temp_FileName , pszFileName , FILENAME_MAX );
 	Temp_Confirm = bConfirm;
 
-#ifndef WINUAE_FOR_HATARI
-	/* With old cpu core, restore is immediate */
-	MemorySnapShot_Restore_Do ();
-#else
 	/* With WinUAE cpu core, restore is done from m68k_go() after the end of the current instruction */
 	UAE_Set_State_Restore ();
 	UAE_Set_Quit_Reset ( false );					/* Ask for "quit" to start restoring state */
 	set_special(SPCFLAG_MODE_CHANGE);				/* exit m68k_run_xxx() loop and check "quit" */
-#endif
 //fprintf ( stderr , "MemorySnapShot_Restore out\n" );
 }
 
@@ -536,6 +526,7 @@ void save_u8(uae_u8 data)
 uae_u64 restore_u64(void)
 {
 	uae_u64 data;
+	bCaptureSave=false;			/* (re)force bCaptureSave=false to prevent gcc11 warning */
 	MemorySnapShot_Store(&data, 8);
 	return data;
 }
@@ -543,6 +534,7 @@ uae_u64 restore_u64(void)
 uae_u32 restore_u32(void)
 {
 	uae_u32 data;
+	bCaptureSave=false;
 	MemorySnapShot_Store(&data, 4);
 //printf ("r32 %x\n", data);
 	return data;
@@ -551,6 +543,7 @@ uae_u32 restore_u32(void)
 uae_u16 restore_u16(void)
 {
 	uae_u16 data;
+	bCaptureSave=false;
 	MemorySnapShot_Store(&data, 2);
 //printf ("r16 %x\n", data);
 	return data;
@@ -559,6 +552,7 @@ uae_u16 restore_u16(void)
 uae_u8 restore_u8(void)
 {
 	uae_u8 data;
+	bCaptureSave=false;
 	MemorySnapShot_Store(&data, 1);
 //printf ("r8 %x\n", data);
 	return data;
