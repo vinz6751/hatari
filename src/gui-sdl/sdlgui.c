@@ -688,7 +688,7 @@ static void SDLGui_EditField(SGOBJ *dlg, int objnum)
 			SDL_FillRect(pSdlGuiScrn, &cursorrect, colors.cursor);
 		}
 		SDLGui_Text(rect.x, rect.y, dlg[objnum].txt);  /* Draw text */
-		SDL_UpdateRects(pSdlGuiScrn, 1, &rect);
+		Screen_UpdateRects(pSdlGuiScrn, 1, &rect);
 	}
 	while (!bStopEditing);
 
@@ -743,7 +743,7 @@ void SDLGui_DrawDialog(const SGOBJ *dlg)
 	{
 		SDLGui_DrawObj(dlg, i);
 	}
-	SDL_UpdateRect(pSdlGuiScrn, 0,0,0,0);
+	Screen_UpdateRect(pSdlGuiScrn, 0,0,0,0);
 }
 
 
@@ -940,7 +940,7 @@ static int SDLGui_FocusNext(SGOBJ *dlg, int i, int inc)
 		{
 			dlg[i].state |= SG_FOCUSED;
 			SDLGui_DrawObj(dlg, i);
-			SDL_UpdateRect(pSdlGuiScrn, 0,0,0,0);
+			Screen_UpdateRect(pSdlGuiScrn, 0,0,0,0);
 			return i;
 		}
 		/* wrapped around without even initial one matching */
@@ -986,7 +986,7 @@ static int SDLGui_HandleSelection(SGOBJ *dlg, int obj, int oldbutton)
 			rct.h = sdlgui_fontheight;
 			SDL_FillRect(pSdlGuiScrn, &rct, colors.midgrey); /* Clear old */
 			SDLGui_DrawRadioButton(dlg, i);
-			SDL_UpdateRects(pSdlGuiScrn, 1, &rct);
+			Screen_UpdateRects(pSdlGuiScrn, 1, &rct);
 		}
 		for (i = obj+1; dlg[i].type == SGRADIOBUT; i++)
 		{
@@ -997,7 +997,7 @@ static int SDLGui_HandleSelection(SGOBJ *dlg, int obj, int oldbutton)
 			rct.h = sdlgui_fontheight;
 			SDL_FillRect(pSdlGuiScrn, &rct, colors.midgrey); /* Clear old */
 			SDLGui_DrawRadioButton(dlg, i);
-			SDL_UpdateRects(pSdlGuiScrn, 1, &rct);
+			Screen_UpdateRects(pSdlGuiScrn, 1, &rct);
 		}
 		dlg[obj].state |= SG_SELECTED;  /* Select this radio button */
 		rct.x = (dlg[0].x+dlg[obj].x)*sdlgui_fontwidth;
@@ -1006,7 +1006,7 @@ static int SDLGui_HandleSelection(SGOBJ *dlg, int obj, int oldbutton)
 		rct.h = sdlgui_fontheight;
 		SDL_FillRect(pSdlGuiScrn, &rct, colors.midgrey); /* Clear old */
 		SDLGui_DrawRadioButton(dlg, obj);
-		SDL_UpdateRects(pSdlGuiScrn, 1, &rct);
+		Screen_UpdateRects(pSdlGuiScrn, 1, &rct);
 		break;
 	case SGCHECKBOX:
 		dlg[obj].state ^= SG_SELECTED;
@@ -1016,12 +1016,12 @@ static int SDLGui_HandleSelection(SGOBJ *dlg, int obj, int oldbutton)
 		rct.h = sdlgui_fontheight;
 		SDL_FillRect(pSdlGuiScrn, &rct, colors.midgrey); /* Clear old */
 		SDLGui_DrawCheckBox(dlg, obj);
-		SDL_UpdateRects(pSdlGuiScrn, 1, &rct);
+		Screen_UpdateRects(pSdlGuiScrn, 1, &rct);
 		break;
 	case SGPOPUP:
 		dlg[obj].state |= SG_SELECTED;
 		SDLGui_DrawPopupButton(dlg, obj);
-		SDL_UpdateRect(pSdlGuiScrn,
+		Screen_UpdateRect(pSdlGuiScrn,
 			       (dlg[0].x+dlg[obj].x)*sdlgui_fontwidth-2,
 			       (dlg[0].y+dlg[obj].y)*sdlgui_fontheight-2,
 			       dlg[obj].w*sdlgui_fontwidth+4,
@@ -1160,7 +1160,7 @@ int SDLGui_DoDialogExt(SGOBJ *dlg, bool (*isEventOut)(SDL_EventType), SDL_Event 
 
 	/* If current object is the scrollbar, and mouse is still down, we can scroll it */
 	/* also if the mouse pointer has left the scrollbar */
-	if (current_object != SDLGUI_NOTFOUND && dlg[current_object].type == SGSCROLLBAR) {
+	if (current_object >= 0 && dlg[current_object].type == SGSCROLLBAR) {
 		obj = current_object;
 		oldbutton = obj;
 		if (b & SDL_BUTTON(1))
@@ -1219,7 +1219,7 @@ int SDLGui_DoDialogExt(SGOBJ *dlg, bool (*isEventOut)(SDL_EventType), SDL_Event 
 					{
 						dlg[obj].state |= SG_SELECTED;
 						SDLGui_DrawButton(dlg, obj);
-						SDL_UpdateRect(pSdlGuiScrn, (dlg[0].x+dlg[obj].x)*sdlgui_fontwidth-2, (dlg[0].y+dlg[obj].y)*sdlgui_fontheight-2,
+						Screen_UpdateRect(pSdlGuiScrn, (dlg[0].x+dlg[obj].x)*sdlgui_fontwidth-2, (dlg[0].y+dlg[obj].y)*sdlgui_fontheight-2,
 						               dlg[obj].w*sdlgui_fontwidth+4, dlg[obj].h*sdlgui_fontheight+4);
 						oldbutton=obj;
 					}
@@ -1254,7 +1254,7 @@ int SDLGui_DoDialogExt(SGOBJ *dlg, bool (*isEventOut)(SDL_EventType), SDL_Event 
 				{
 					dlg[oldbutton].state &= ~SG_SELECTED;
 					SDLGui_DrawButton(dlg, oldbutton);
-					SDL_UpdateRect(pSdlGuiScrn, (dlg[0].x+dlg[oldbutton].x)*sdlgui_fontwidth-2, (dlg[0].y+dlg[oldbutton].y)*sdlgui_fontheight-2,
+					Screen_UpdateRect(pSdlGuiScrn, (dlg[0].x+dlg[oldbutton].x)*sdlgui_fontwidth-2, (dlg[0].y+dlg[oldbutton].y)*sdlgui_fontheight-2,
 					               dlg[oldbutton].w*sdlgui_fontwidth+4, dlg[oldbutton].h*sdlgui_fontheight+4);
 					oldbutton = SDLGUI_NOTFOUND;
 				}
@@ -1315,6 +1315,9 @@ int SDLGui_DoDialogExt(SGOBJ *dlg, bool (*isEventOut)(SDL_EventType), SDL_Event 
 				break;
 
 			 case SDL_KEYDOWN:                     /* Key pressed */
+				/* keys that need to support repeat,
+				 * need to be checked on press
+				 */
 				key = sdlEvent.key.keysym.sym;
 				/* keyboard shortcuts are with modifiers */
 				if (sdlEvent.key.keysym.mod & KMOD_LALT
@@ -1358,6 +1361,19 @@ int SDLGui_DoDialogExt(SGOBJ *dlg, bool (*isEventOut)(SDL_EventType), SDL_Event 
 					SDLGui_RemoveFocus(dlg, focused);
 					focused = SDLGui_FocusNext(dlg, 1, -1);
 					break;
+				 default:
+					retbutton = SDLGUI_UNKNOWNEVENT;
+					break;
+				}
+				break;
+
+			case SDL_KEYUP:                     /* Key released */
+				/* keys potentially exiting dialog need
+				 * to be handed only on release, to avoid
+				 * leaking release events to emulation
+				 */
+				switch (sdlEvent.key.keysym.sym)
+				{
 				 case SDLK_SPACE:
 				 case SDLK_RETURN:
 				 case SDLK_KP_ENTER:
@@ -1377,7 +1393,7 @@ int SDLGui_DoDialogExt(SGOBJ *dlg, bool (*isEventOut)(SDL_EventType), SDL_Event 
 				    || sdlEvent.window.event == SDL_WINDOWEVENT_RESTORED
 				    || sdlEvent.window.event == SDL_WINDOWEVENT_EXPOSED)
 				{
-					SDL_UpdateRect(pSdlGuiScrn, 0, 0, 0, 0);
+					Screen_UpdateRect(pSdlGuiScrn, 0, 0, 0, 0);
 				}
 				break;
 

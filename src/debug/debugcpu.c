@@ -40,9 +40,9 @@ const char DebugCpu_fileid[] = "Hatari debugcpu.c";
 #define MEMDUMP_COLS   16      /* memdump, number of bytes per row */
 #define NON_PRINT_CHAR '.'     /* character to display for non-printables */
 
-static Uint32 disasm_addr;     /* disasm address */
-static Uint32 memdump_addr;    /* memdump address */
-static Uint32 fake_regs[8];    /* virtual debugger "registers" */
+static uint32_t disasm_addr;     /* disasm address */
+static uint32_t memdump_addr;    /* memdump address */
+static uint32_t fake_regs[8];    /* virtual debugger "registers" */
 static bool bFakeRegsUsed;     /* whether to show virtual regs */
 
 static bool bCpuProfiling;     /* Whether CPU profiling is activated */
@@ -57,7 +57,7 @@ static int DebugCpu_LoadBin(int nArgc, char *psArgs[])
 {
 	FILE *fp;
 	unsigned char c;
-	Uint32 address;
+	uint32_t address;
 	int i=0;
 
 	if (nArgc < 3)
@@ -104,8 +104,8 @@ static int DebugCpu_SaveBin(int nArgc, char *psArgs[])
 {
 	FILE *fp;
 	unsigned char c;
-	Uint32 address;
-	Uint32 bytes, i = 0;
+	uint32_t address;
+	uint32_t bytes, i = 0;
 
 	if (nArgc < 4)
 	{
@@ -144,28 +144,11 @@ static int DebugCpu_SaveBin(int nArgc, char *psArgs[])
 
 
 /**
- * Check whether given address matches any CPU symbol and whether
- * there's profiling information available for it.  If yes, show it.
- * 
- * @return true if symbol was shown, false otherwise
- */
-static bool DebugCpu_ShowAddressInfo(Uint32 addr, FILE *fp)
-{
-	const char *symbol = Symbols_GetByCpuAddress(addr, SYMTYPE_ALL);
-	if (symbol)
-	{
-		fprintf(fp, "%s:\n", symbol);
-		return true;
-	}
-	return false;
-}
-
-/**
  * Disassemble - arg = starting address, or PC.
  */
 int DebugCpu_DisAsm(int nArgc, char *psArgs[])
 {
-	Uint32 disasm_upper = 0;
+	uint32_t prev_addr, disasm_upper = 0, pc = M68000_GetPC();
 	int shown, lines = INT_MAX;
 	uaecptr nextpc;
 
@@ -188,7 +171,7 @@ int DebugCpu_DisAsm(int nArgc, char *psArgs[])
 	{
 		/* continue */
 		if(!disasm_addr)
-			disasm_addr = M68000_GetPC();
+			disasm_addr = pc;
 	}
 
 	/* limit is topmost address or instruction count */
@@ -199,10 +182,28 @@ int DebugCpu_DisAsm(int nArgc, char *psArgs[])
 	}
 
 	/* output a range */
+	prev_addr = disasm_addr;
 	for (shown = 0; shown < lines && disasm_addr < disasm_upper; shown++)
 	{
-		if (DebugCpu_ShowAddressInfo(disasm_addr, debugOutput))
+		const char *symbol;
+		if (prev_addr < pc && disasm_addr > pc)
+		{
+			fputs("ERROR, disassembly misaligned with PC address, correcting\n", debugOutput);
+			disasm_addr = pc;
 			shown++;
+		}
+		if (disasm_addr == pc)
+		{
+			fputs("(PC)\n", debugOutput);
+			shown++;
+		}
+		prev_addr = disasm_addr;
+		symbol = Symbols_GetByCpuAddress(disasm_addr, SYMTYPE_ALL);
+		if (symbol)
+		{
+			fprintf(debugOutput, "%s:\n", symbol);
+			shown++;
+		}
 		Disasm(debugOutput, (uaecptr)disasm_addr, &nextpc, 1);
 		disasm_addr = nextpc;
 	}
@@ -248,7 +249,7 @@ static char *DebugCpu_MatchRegister(const char *text, int state)
  *
  * Return register size in bits or zero for unknown register name.
  */
-int DebugCpu_GetRegisterAddress(const char *reg, Uint32 **addr)
+int DebugCpu_GetRegisterAddress(const char *reg, uint32_t **addr)
 {
 	char r0;
 	int r1;
@@ -273,7 +274,7 @@ int DebugCpu_GetRegisterAddress(const char *reg, Uint32 **addr)
 		{
 			static const struct {
 				const char name[5];
-				Uint32 *addr;
+				uint32_t *addr;
 			} reg_020[] = {
 				{ "CAAR", &regs.caar },
 				{ "CACR", &regs.cacr },
@@ -339,7 +340,7 @@ int DebugCpu_GetRegisterAddress(const char *reg, Uint32 **addr)
 int DebugCpu_Register(int nArgc, char *psArgs[])
 {
 	char *arg, *assign;
-	Uint32 value;
+	uint32_t value;
 
 	/* If no parameter has been given, simply dump all registers */
 	if (nArgc == 1)
@@ -397,7 +398,7 @@ int DebugCpu_Register(int nArgc, char *psArgs[])
 	}
 	else
 	{
-		Uint32 *regaddr;
+		uint32_t *regaddr;
 		/* check&set data and address registers */
 		if (DebugCpu_GetRegisterAddress(arg, &regaddr))
 		{
@@ -453,7 +454,7 @@ int DebugCpu_MemDump(int nArgc, char *psArgs[])
 {
 	char c, mode;
 	int i, arg, size;
-	Uint32 value, memdump_upper = 0;
+	uint32_t value, memdump_upper = 0;
 
 	arg = 1;
 	mode = 0;
@@ -568,11 +569,11 @@ int DebugCpu_MemDump(int nArgc, char *psArgs[])
 static int DebugCpu_MemWrite(int nArgc, char *psArgs[])
 {
 	int i, arg, values, max_values;
-	Uint32 write_addr, d;
+	uint32_t write_addr, d;
 	union {
-		Uint8  bytes[256];
-		Uint16 words[128];
-		Uint32 longs[64];
+		uint8_t  bytes[256];
+		uint16_t words[128];
+		uint32_t longs[64];
 	} store;
 	char mode;
 
@@ -640,7 +641,7 @@ static int DebugCpu_MemWrite(int nArgc, char *psArgs[])
 				fprintf(stderr, "Illegal byte argument: 0x%x!\n", d);
 				return DEBUGGER_CMDDONE;
 			}
-			store.bytes[values] = (Uint8)d;
+			store.bytes[values] = (uint8_t)d;
 			break;
 		case 'w':
 			if (d > 0xffff)
@@ -648,7 +649,7 @@ static int DebugCpu_MemWrite(int nArgc, char *psArgs[])
 				fprintf(stderr, "Illegal word argument: 0x%x!\n", d);
 				return DEBUGGER_CMDDONE;
 			}
-			store.words[values] = (Uint16)d;
+			store.words[values] = (uint16_t)d;
 			break;
 		case 'l':
 			store.longs[values] = d;
@@ -732,7 +733,7 @@ static char *DebugCpu_MatchNext(const char *text, int state)
  * subroutine call depth for "next" breakpoint
  */
 static int CpuCallDepth;
-Uint32 DebugCpu_CallDepth(void)
+uint32_t DebugCpu_CallDepth(void)
 {
 	return CpuCallDepth;
 }
@@ -788,7 +789,7 @@ static int DebugCpu_Next(int nArgc, char *psArgv[])
 	}
 	else
 	{
-		Uint32 optype, nextpc;
+		uint32_t optype, nextpc;
 
 		optype = DebugCpu_OpcodeType();
 		/* should this instruction be stepped normally, or is it
@@ -800,7 +801,7 @@ static int DebugCpu_Next(int nArgc, char *psArgv[])
 		    optype == CALL_EXCEPTION ||
 		    (optype == CALL_BRANCH &&
 		     (STMemory_ReadWord(M68000_GetPC()) & 0xf0f8) == 0x50c8 &&
-		     (Sint16)STMemory_ReadWord(M68000_GetPC()+SIZE_WORD) < 0))
+		     (int16_t)STMemory_ReadWord(M68000_GetPC() + SIZE_WORD) < 0))
 		{
 			nextpc = Disasm_GetNextPC(M68000_GetPC());
 			sprintf(command, "pc=$%x :once :quiet\n", nextpc);
@@ -821,12 +822,12 @@ static int DebugCpu_Next(int nArgc, char *psArgv[])
 }
 
 /* helper to get instruction type */
-Uint32 DebugCpu_OpcodeType(void)
+uint32_t DebugCpu_OpcodeType(void)
 {
 	/* cannot use OpcodeFamily like profiler does,
 	 * as that's for previous instructions
 	 */
-	Uint16 opcode = STMemory_ReadWord(M68000_GetPC());
+	uint16_t opcode = STMemory_ReadWord(M68000_GetPC());
 
 	if (opcode == 0x4e74 ||			/* RTD */
 	    opcode == 0x4e75 ||			/* RTS */
@@ -869,8 +870,8 @@ Uint32 DebugCpu_OpcodeType(void)
 /**
  * CPU instructions since continuing emulation
  */
-static Uint32 nCpuInstructions;
-Uint32 DebugCpu_InstrCount(void)
+static uint32_t nCpuInstructions;
+uint32_t DebugCpu_InstrCount(void)
 {
 	return nCpuInstructions;
 }
@@ -887,11 +888,15 @@ void DebugCpu_Check(void)
 	}
 	if (LOG_TRACE_LEVEL((TRACE_CPU_DISASM|TRACE_CPU_SYMBOLS)))
 	{
-		DebugCpu_ShowAddressInfo(M68000_GetPC(), TraceFile);
+		const char *symbol;
+		symbol = Symbols_GetByCpuAddress(M68000_GetPC(), SYMTYPE_ALL);
+		if (symbol)
+			LOG_TRACE_PRINT("%s\n", symbol);
 	}
 	if (LOG_TRACE_LEVEL(TRACE_CPU_REGS))
 	{
 		uaecptr nextpc;
+		LOG_TRACE_DIRECT_INIT ();
 		m68k_dumpstate_file(TraceFile, &nextpc, 0xffffffff);
 	}
 	if (nCpuActiveCBs)
@@ -962,8 +967,8 @@ static const dbgcommand_t cpucommands[] =
 	  "disasm", "d",
 	  "disassemble from PC, or given address",
 	  "[<start address>[-<end address>]]\n"
-	  "\tIf no address is given, this command disassembles from the last\n"
-	  "\tposition or from current PC if no last position is available.",
+	  "\tWhen no address is given, disassemble from the last disasm\n"
+	  "\taddress, or from current PC when debugger is (re-)entered.",
 	  false },
 	{ DebugCpu_Profile, Profile_Match,
 	  "profile", "",
@@ -974,8 +979,8 @@ static const dbgcommand_t cpucommands[] =
 	  "cpureg", "r",
 	  "dump register values or set register to value",
 	  "[REG=value]\n"
-	  "\tSet CPU register to value or dumps all register if no parameter\n"
-	  "\thas been specified.",
+	  "\tSet CPU register to given value, or dump all registers\n"
+	  "\twhen no parameter is given.",
 	  true },
 	{ DebugCpu_MemDump, Symbols_MatchCpuDataAddress,
 	  "memdump", "m",
@@ -997,13 +1002,13 @@ static const dbgcommand_t cpucommands[] =
 	{ DebugCpu_LoadBin, NULL,
 	  "loadbin", "l",
 	  "load a file into memory",
-	  "filename address\n"
+	  "<filename> <address>\n"
 	  "\tLoad the file <filename> into memory starting at <address>.",
 	  false },
 	{ DebugCpu_SaveBin, NULL,
 	  "savebin", "",
 	  "save memory to a file",
-	  "filename address length\n"
+	  "<filename> <address> <length>\n"
 	  "\tSave the memory block at <address> with given <length> to\n"
 	  "\tthe file <filename>.",
 	  false },
@@ -1016,7 +1021,7 @@ static const dbgcommand_t cpucommands[] =
 	  "step", "s",
 	  "single-step CPU",
 	  "\n"
-	  "\tExecute next CPU instruction (equals 'c 1')",
+	  "\tExecute next CPU instruction (like 'c 1', but repeats on Enter).",
 	  false },
 	{ DebugCpu_Next, DebugCpu_MatchNext,
 	  "next", "n",
@@ -1025,7 +1030,7 @@ static const dbgcommand_t cpucommands[] =
 	  "\tSame as 'step' command if there are no subroutine calls.\n"
           "\tWhen there are, those calls are treated as one instruction.\n"
 	  "\tIf argument is given, continues until instruction of given\n"
-	  "\ttype is encountered.",
+	  "\ttype is encountered.  Repeats on Enter.",
 	  false },
 	{ DebugCpu_Continue, NULL,
 	  "cont", "c",
@@ -1062,6 +1067,7 @@ int DebugCpu_Init(const dbgcommand_t **table)
  */
 void DebugCpu_InitSession(void)
 {
-	disasm_addr = M68000_GetPC();
+#define MAX_CPU_DISASM_OFFSET 16
+	disasm_addr = History_DisasmAddr(M68000_GetPC(), MAX_CPU_DISASM_OFFSET, false);
 	Profile_CpuStop();
 }

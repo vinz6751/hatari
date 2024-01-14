@@ -22,6 +22,7 @@ const char DlgFileSelect_fileid[] = "Hatari dlgFileSelect.c";
 #include "sdlgui.h"
 #include "file.h"
 #include "paths.h"
+#include "str.h"
 #include "zip.h"
 #include "log.h"
 
@@ -544,7 +545,7 @@ static char* zip_get_path(const char *zipdir, const char *zipfilename, int brows
 	if (browsingzip)
 	{
 		char *zippath;
-		zippath = malloc(strlen(zipdir) + strlen(zipfilename) + 1);
+		zippath = Str_Alloc(strlen(zipdir) + strlen(zipfilename));
 		strcpy(zippath, zipdir);
 		strcat(zippath, zipfilename);
 		return zippath;
@@ -586,7 +587,7 @@ static void DlgFileSelect_Convert_ypos_to_scrollbar_Ypos(void)
 static char findNextOrPreviousDrive(char step, char *path)
 {
 	char chDrv;
-	UINT driverType;
+	UINT driveType;
 	char rootPath[3];
 
 	char endDrv = step > 0 ? 'Z' : 'A';
@@ -596,9 +597,9 @@ static char findNextOrPreviousDrive(char step, char *path)
 		/* make root path */
 		sprintf_s(rootPath, 3, "%c:", chDrv);
 
-		/* get driver type */
-		driverType = GetDriveTypeA(rootPath);
-		if ((driverType == DRIVE_NO_ROOT_DIR) || (driverType == DRIVE_UNKNOWN))
+		/* get drive type */
+		driveType = GetDriveTypeA(rootPath);
+		if ((driveType == DRIVE_NO_ROOT_DIR) || (driveType == DRIVE_UNKNOWN))
 			continue;
 
 		sCurrDrive[0] = rootPath[0];
@@ -622,7 +623,7 @@ static void refreshDrive(char driveletter)
 	/* if we don't have root path with letter get it from cwd */
 	if (driveletter == PATHSEP)
 	{
-		char* pTempName = malloc(FILENAME_MAX);
+		char* pTempName = Str_Alloc(FILENAME_MAX);
 		if (!getcwd(pTempName, FILENAME_MAX))
 		{
 			perror("WinInitializeDriveLetter - getcwd");
@@ -721,8 +722,7 @@ char* SDLGui_FileSelect(const char *title, const char *path_and_name, char **zip
 	/* Prepare the path and filename variables */
 	if (path_and_name && path_and_name[0])
 	{
-		strncpy(path, path_and_name, FILENAME_MAX);
-		path[FILENAME_MAX-1] = '\0';
+		Str_Copy(path, path_and_name, FILENAME_MAX);
 	}
 	if (!File_DirExists(path))
 	{
@@ -1116,14 +1116,36 @@ bool SDLGui_FileConfSelect(const char *title, char *dlgname, char *confname, int
 		if (!File_DoesFileNameEndWithSlash(selname) &&
 		    (bAllowNew || File_Exists(selname)))
 		{
-			strncpy(confname, selname, FILENAME_MAX);
-			confname[FILENAME_MAX-1] = '\0';
+			Str_Copy(confname, selname, FILENAME_MAX);
 			File_ShrinkName(dlgname, selname, maxlen);
+			free(selname);
+			return true;
 		}
-		else
-		{
-			dlgname[0] = confname[0] = 0;
-		}
+		dlgname[0] = confname[0] = 0;
+		free(selname);
+	}
+	return false;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Let user browse given directory.  If one is selected, set directory
+ * to confname & short name to dlgname, and return true, else false.
+ *
+ * (dlgname is limited to maxlen and confname is assumed to be
+ * Hatari config field with FILENAME_MAX amount of space)
+ */
+bool SDLGui_DirConfSelect(const char *title, char *dlgname, char *confname, int maxlen)
+{
+	char *selname;
+
+	selname = SDLGui_FileSelect(title, confname, NULL, false);
+	if (selname)
+	{
+		File_MakeValidPathName(selname);
+		Str_Copy(confname, selname, FILENAME_MAX);
+		File_ShrinkName(dlgname, selname, maxlen);
 		free(selname);
 		return true;
 	}

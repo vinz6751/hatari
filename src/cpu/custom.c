@@ -18,13 +18,9 @@
 #include "newcpu.h"
 #include "main.h"
 #include "cpummu.h"
-#include "m68000.h"
-#include "debugui.h"
-#include "debugcpu.h"
-#ifdef WINUAE_FOR_HATARI
-#include "debug.h"
 #include "blitter.h"
-#endif
+#include "debug.h"
+#include "savestate.h"
 
 #define WRITE_LOG_BUF_SIZE 4096
 
@@ -34,99 +30,108 @@
 /* declared in newcpu.c */
 extern struct regstruct mmu_backup_regs;
 /* declared in events.h */
-unsigned long currcycle;
+evt_t currcycle;
 /* declared in savestate.h */
 int savestate_state = 0;
-TCHAR *savestate_fname;
+TCHAR savestate_fname[MAX_DPATH];
 /* declared in custom.h */
-unsigned long int hsync_counter = 0, vsync_counter = 0;
+uae_u32 hsync_counter = 0, vsync_counter = 0;
 #endif
 
 
 uae_u16 dmacon;
 
-static int extra_cycle;
-
-#if 0
-typedef struct _LARGE_INTEGER
-{
-     union
-     {
-          struct
-          {
-               unsigned long LowPart;
-               long HighPart;
-          };
-          int64_t QuadPart;
-     };
-} LARGE_INTEGER, *PLARGE_INTEGER;
-#endif
-
+static uae_u32 extra_cycle;
 
 #ifdef CPUEMU_13
 
 #ifndef WINUAE_FOR_HATARI
-uae_u8 cycle_line[256 + 1];
-
-static void sync_ce020 (void)
+static void sync_cycles(void)
 {
-	unsigned long c;
-	int extra;
-
-	c = get_cycles ();
-	extra = c & (CYCLE_UNIT - 1);
+	if (extra_cycle) {
+		do_cycles(extra_cycle);
+		extra_cycle = 0;
+	}
+	evt_t c = get_cycles();
+	int extra = c & (CYCLE_UNIT - 1);
 	if (extra) {
 		extra = CYCLE_UNIT - extra;
-		do_cycles (extra);
+		do_cycles(extra);
 	}
 }
-
-#define SETIFCHIP \
-	if (addr < 0xd80000) \
-		last_custom_value1 = v;
-#endif		/* WINUAE_FOR_HATARI */
+#endif
 
 uae_u32 wait_cpu_cycle_read (uaecptr addr, int mode)
 {
 	uae_u32 v = 0;
 #ifndef WINUAE_FOR_HATARI
 	int hpos;
+	int ipl = regs.ipl[0];
+	evt_t now = get_cycles();
 
-	hpos = dma_cycle ();
-	x_do_cycles_pre (CYCLE_UNIT);
+	sync_cycles();
+
+	x_do_cycles_pre(CYCLE_UNIT);
+
+	hpos = dma_cycle(addr, 0xffffffff, &mode, &ipl);
 
 #ifdef DEBUGGER
-	struct dma_rec *dr = NULL;
 	if (debug_dma) {
 		int reg = 0x1000;
-		if (mode < 0)
-			reg |= 4;
-		else if (mode > 0)
+		if (mode == -3) {
 			reg |= 2;
-		else
+			v = regs.chipset_latch_rw;
+		} else if (mode < 0) {
+			reg |= 4;
+		} else if (mode > 0) {
+			reg |= 2;
+		} else {
 			reg |= 1;
-		dr = record_dma (reg, v, addr, hpos, vpos, DMARECORD_CPU);
-		checknasty (hpos, vpos);
+		}
+		record_dma_read(reg, addr, hpos, vpos, DMARECORD_CPU, mode == -2 || mode == 2 ? 0 : 1);
 	}
+	peekdma_data.mask = 0;
 #endif
-	if (mode < 0)
-		v = get_long (addr);
-	else if (mode > 0)
-		v = get_word (addr);
-	else if (mode == 0)
-		v = get_byte (addr);
+
+	switch(mode)
+	{
+		case -1:
+		v = get_long(addr);
+		break;
+		case -2:
+		v = get_longi(addr);
+		break;
+		case 1:
+		v = get_word(addr);
+		break;
+		case 2:
+		v = get_wordi(addr);
+		break;
+		case 0:
+		v = get_byte(addr);
+		break;
+	}
 
 #ifdef DEBUGGER
-	if (debug_dma)
-		dr->dat = v;
+	if (debug_dma) {
+		record_dma_read_value(v);
+	}
 #endif
 
-	x_do_cycles_post (CYCLE_UNIT, v);
-
 	regs.chipset_latch_rw = regs.chipset_latch_read = v;
-	SETIFCHIP
+		
+	x_do_cycles_post(CYCLE_UNIT, v);
+
+	// if IPL fetch was pending and CPU had wait states
+	// Use ipl_pin value from previous cycle
+	if (now == regs.ipl_evt) {
+		regs.ipl[0] = ipl;
+	}
 
 #else						/* WINUAE_FOR_HATARI */
+	int ipl = regs.ipl[0];
+	evt_t now = get_cycles();
+
 //	fprintf ( stderr , "mem read ce %x %d %lu %lu\n" , addr , mode ,currcycle / cpucycleunit , currcycle );
 	if ( ( ( CyclesGlobalClockCounter + currcycle*2/CYCLE_UNIT ) & 3 ) == 2 )
 	{
@@ -135,59 +140,174 @@ uae_u32 wait_cpu_cycle_read (uaecptr addr, int mode)
 //		fprintf ( stderr , "mem wait read after %x %d %lu %lu\n" , addr , mode , currcycle / cpucycleunit , currcycle );
 	}
 
-	if (mode < 0)
-		v = get_long (addr);
-	else if (mode > 0)
-		v = get_word (addr);
-	else if (mode == 0)
-		v = get_byte (addr);
+	switch(mode)
+	{
+		case -1:
+		v = get_long(addr);
+		break;
+		case -2:
+		v = get_longi(addr);
+		break;
+		case 1:
+		v = get_word(addr);
+		break;
+		case 2:
+		v = get_wordi(addr);
+		break;
+		case 0:
+		v = get_byte(addr);
+		break;
+	}
 
 	x_do_cycles_post (2*CYCLE_UNIT, v);
+
+	// if IPL fetch was pending and CPU had wait states
+	// Use ipl_pin value from previous cycle
+	if (now == regs.ipl_evt && regs.ipl_pin_change_evt > now + cpuipldelay2) {
+		regs.ipl[0] = ipl;
+	}
 #endif						/* WINUAE_FOR_HATARI */
 
 	return v;
 }
 
+void wait_cpu_cycle_write (uaecptr addr, int mode, uae_u32 v)
+{
+#ifndef WINUAE_FOR_HATARI
+	int hpos;
+	int ipl = regs.ipl[0];
+	evt_t now = get_cycles();
+
+	sync_cycles();
+
+	x_do_cycles_pre(CYCLE_UNIT);
+
+	hpos = dma_cycle(addr, v, &mode, &ipl);
+
+#ifdef DEBUGGER
+	if (debug_dma) {
+		int reg = 0x1100;
+		if (mode == -3) {
+			reg |= 2;
+		} else if (mode < 0) {
+			reg |= 4;
+		} else if (mode > 0) {
+			reg |= 2;
+		} else {
+			reg |= 1;
+		}
+		record_dma_write(reg, v, addr, hpos, vpos, DMARECORD_CPU, 1);
+	}
+	peekdma_data.mask = 0;
+#endif
+
+	if (mode > -2) {
+		if (mode < 0) {
+			put_long(addr, v);
+		} else if (mode > 0) {
+			put_word(addr, v);
+		} else if (mode == 0) {
+			put_byte(addr, v);
+		}
+	}
+
+	regs.chipset_latch_rw = regs.chipset_latch_write = v;
+
+	x_do_cycles_post(CYCLE_UNIT, v);
+
+	// if IPL fetch was pending and CPU had wait states:
+	// Use ipl_pin value from previous cycle
+	if (now == regs.ipl_evt) {
+		regs.ipl[0] = ipl;
+	}
+
+#else						/* WINUAE_FOR_HATARI */
+	int ipl = regs.ipl[0];
+	evt_t now = get_cycles();
+
+//	fprintf ( stderr , "mem write ce %x %d %lu %lu\n" , addr , mode ,currcycle / cpucycleunit , currcycle );
+	if ( ( ( CyclesGlobalClockCounter + currcycle*2/CYCLE_UNIT ) & 3 ) == 2 )
+	{
+//		fprintf ( stderr , "mem wait write %x %d %lu %lu\n" , addr , mode , currcycle / cpucycleunit , currcycle );
+		x_do_cycles (2*cpucycleunit);
+//		fprintf ( stderr , "mem wait write after %x %d %lu %lu\n" , addr , mode , currcycle / cpucycleunit , currcycle );
+	}
+
+	if (mode > -2) {
+		if (mode < 0) {
+			put_long(addr, v);
+		} else if (mode > 0) {
+			put_word(addr, v);
+		} else if (mode == 0) {
+			put_byte(addr, v);
+		}
+	}
+
+	x_do_cycles_post (2*CYCLE_UNIT, v);
+
+	// if IPL fetch was pending and CPU had wait states:
+	// Use ipl_pin value from previous cycle
+	if (now == regs.ipl_evt) {
+		regs.ipl[0] = ipl;
+	}
+#endif						/* WINUAE_FOR_HATARI */
+}
+
+
 uae_u32 wait_cpu_cycle_read_ce020 (uaecptr addr, int mode)
 {
 	uae_u32 v = 0;
 #ifndef WINUAE_FOR_HATARI
-	int hpos;
+	int hpos, ipl;
 
-	sync_ce020 ();
-	hpos = dma_cycle ();
-	x_do_cycles_pre (CYCLE_UNIT);
+	sync_cycles();
+
+	x_do_cycles_pre(CYCLE_UNIT);
+
+	hpos = dma_cycle(0xffffffff, 0xffff, NULL, &ipl);
 
 #ifdef DEBUGGER
-	struct dma_rec *dr = NULL;
 	if (debug_dma) {
 		int reg = 0x1000;
-		if (mode < 0)
+		if (mode < 0) {
 			reg |= 4;
-		else if (mode > 0)
+		} else if (mode > 0) {
 			reg |= 2;
-		else
+		} else {
 			reg |= 1;
-		dr = record_dma (reg, v, addr, hpos, vpos, DMARECORD_CPU);
-		checknasty (hpos, vpos);
+		}
+		record_dma_read(reg, addr, hpos, vpos, DMARECORD_CPU, mode == -2 || mode == 2 ? 0 : 1);
 	}
+	peekdma_data.mask = 0;
 #endif
-	if (mode < 0)
-		v = get_long (addr);
-	else if (mode > 0)
-		v = get_word (addr);
-	else if (mode == 0)
-		v = get_byte (addr);
+
+	switch (mode) {
+		case -1:
+		v = get_long(addr);
+		break;
+		case -2:
+		v = get_longi(addr);
+		break;
+		case 1:
+		v = get_word(addr);
+		break;
+		case 2:
+		v = get_wordi(addr);
+		break;
+		case 0:
+		v = get_byte(addr);
+		break;
+	}
 
 #ifdef DEBUGGER
-	if (debug_dma)
-		dr->dat = v;
+	if (debug_dma) {
+		record_dma_read_value(v);
+	}
 #endif
-	if (currprefs.cpu_model == 68020)
-		x_do_cycles_post (CYCLE_UNIT / 2, v);
 
 	regs.chipset_latch_rw = regs.chipset_latch_read = v;
-	SETIFCHIP
+		
+	x_do_cycles_post(CYCLE_UNIT, v);
 
 #else						/* WINUAE_FOR_HATARI */
 
@@ -204,12 +324,23 @@ uae_u32 wait_cpu_cycle_read_ce020 (uaecptr addr, int mode)
 
 //fprintf ( stderr , "wait read2 ce020 %lu %lu\n" , currcycle / cpucycleunit , currcycle );
 
-	if (mode < 0)
-		v = get_long (addr);
-	else if (mode > 0)
-		v = get_word (addr);
-	else if (mode == 0)
-		v = get_byte (addr);
+	switch (mode) {
+		case -1:
+		v = get_long(addr);
+		break;
+		case -2:
+		v = get_longi(addr);
+		break;
+		case 1:
+		v = get_word(addr);
+		break;
+		case 2:
+		v = get_wordi(addr);
+		break;
+		case 0:
+		v = get_byte(addr);
+		break;
+	}
 
 //fprintf ( stderr , "wait read3 ce020 %lu %lu\n" , currcycle / cpucycleunit , currcycle );
 	x_do_cycles_post (3*cpucycleunit, v);
@@ -220,68 +351,16 @@ uae_u32 wait_cpu_cycle_read_ce020 (uaecptr addr, int mode)
 	return v;
 }
 
-void wait_cpu_cycle_write (uaecptr addr, int mode, uae_u32 v)
-{
-#ifndef WINUAE_FOR_HATARI
-	int hpos;
-
-	hpos = dma_cycle ();
-	x_do_cycles_pre (CYCLE_UNIT);
-
-#ifdef DEBUGGER
-	if (debug_dma) {
-		int reg = 0x1100;
-		if (mode < 0)
-			reg |= 4;
-		else if (mode > 0)
-			reg |= 2;
-		else
-			reg |= 1;
-		record_dma (reg, v, addr, hpos, vpos, DMARECORD_CPU);
-		checknasty (hpos, vpos);
-	}
-#endif
-
-	if (mode < 0)
-		put_long (addr, v);
-	else if (mode > 0)
-		put_word (addr, v);
-	else if (mode == 0)
-		put_byte (addr, v);
-
-	x_do_cycles_post (CYCLE_UNIT, v);
-
-	regs.chipset_latch_rw = regs.chipset_latch_write = v;
-	SETIFCHIP
-
-#else						/* WINUAE_FOR_HATARI */
-//	fprintf ( stderr , "mem write ce %x %d %lu %lu\n" , addr , mode ,currcycle / cpucycleunit , currcycle );
-	if ( ( ( CyclesGlobalClockCounter + currcycle*2/CYCLE_UNIT ) & 3 ) == 2 )
-	{
-//		fprintf ( stderr , "mem wait write %x %d %lu %lu\n" , addr , mode , currcycle / cpucycleunit , currcycle );
-		x_do_cycles (2*cpucycleunit);
-//		fprintf ( stderr , "mem wait write after %x %d %lu %lu\n" , addr , mode , currcycle / cpucycleunit , currcycle );
-	}
-
-	if (mode < 0)
-		put_long (addr, v);
-	else if (mode > 0)
-		put_word (addr, v);
-	else if (mode == 0)
-		put_byte (addr, v);
-
-	x_do_cycles_post (2*CYCLE_UNIT, v);
-#endif						/* WINUAE_FOR_HATARI */
-}
-
 void wait_cpu_cycle_write_ce020 (uaecptr addr, int mode, uae_u32 v)
 {
 #ifndef WINUAE_FOR_HATARI
-	int hpos;
+	int hpos, ipl;
 
-	sync_ce020 ();
-	hpos = dma_cycle ();
-	x_do_cycles_pre (CYCLE_UNIT);
+	sync_cycles();
+
+ 	x_do_cycles_pre(CYCLE_UNIT);
+
+	hpos = dma_cycle(0xffffffff, 0xffff, NULL, &ipl);
 
 #ifdef DEBUGGER
 	if (debug_dma) {
@@ -292,23 +371,22 @@ void wait_cpu_cycle_write_ce020 (uaecptr addr, int mode, uae_u32 v)
 			reg |= 2;
 		else
 			reg |= 1;
-		record_dma (reg, v, addr, hpos, vpos, DMARECORD_CPU);
-		checknasty (hpos, vpos);
+		record_dma_write(reg, v, addr, hpos, vpos, DMARECORD_CPU, 1);
 	}
+	peekdma_data.mask = 0;
 #endif
 
-	if (mode < 0)
-		put_long (addr, v);
-	else if (mode > 0)
-		put_word (addr, v);
-	else if (mode == 0)
-		put_byte (addr, v);
-
-	if (currprefs.cpu_model == 68020)
-		x_do_cycles_post (CYCLE_UNIT / 2, v);
+	if (mode < 0) {
+		put_long(addr, v);
+	} else if (mode > 0) {
+		put_word(addr, v);
+	} else if (mode == 0) {
+		put_byte(addr, v);
+	}
 
 	regs.chipset_latch_rw = regs.chipset_latch_write = v;
-	SETIFCHIP
+		
+	x_do_cycles_post(CYCLE_UNIT, v);
 
 #else						/* WINUAE_FOR_HATARI */
 
@@ -339,7 +417,7 @@ void wait_cpu_cycle_write_ce020 (uaecptr addr, int mode, uae_u32 v)
 }
 
 #ifndef WINUAE_FOR_HATARI
-void do_cycles_ce (unsigned long cycles)
+void do_cycles_ce (uae_u32 cycles)
 {
 	cycles += extra_cycle;
 	while (cycles >= CYCLE_UNIT) {
@@ -358,7 +436,7 @@ void do_cycles_ce (unsigned long cycles)
 /* [NP] Unlike Amiga, for Hatari in 68000 CE mode, we don't need to update other components */
 /* on every sub cycle, so we can do all cycles in one single call to speed up */
 /* emulation (this gains approx 7%) */
-void do_cycles_ce (unsigned long cycles)
+void do_cycles_ce (int cycles)
 {
 	cycles += extra_cycle;
 	extra_cycle = cycles & ( CYCLE_UNIT-1 );
@@ -368,7 +446,7 @@ void do_cycles_ce (unsigned long cycles)
 
 #ifdef WINUAE_FOR_HATARI
 /* Same as do_cycles_ce() with cycle exact blitter support */
-void do_cycles_ce_hatari_blitter (unsigned long cycles)
+void do_cycles_ce_hatari_blitter (int cycles)
 {
 	cycles += extra_cycle;
 	while (cycles >= CYCLE_UNIT) {
@@ -391,27 +469,17 @@ void do_cycles_ce_hatari_blitter (unsigned long cycles)
 #endif
 
 
-#ifndef WINUAE_FOR_HATARI
-void do_cycles_ce020 (unsigned long cycles)
-#else
-/* [NP] : confusing, because same function name as in cpu_prefetch.h with do_cycles_ce020( int ), */
-/* but here unsigned long parameter is already multiplied by cpucycleunit. */
-/* Requires C++, so we rename to do_cycles_ce020_long() to keep C compatibility */
-void do_cycles_ce020_long (unsigned long cycles)
-#endif
+void do_cycles_ce020 (int cycles)
 {
-	unsigned long c;
-#ifndef WINUAE_FOR_HATARI
+	int c;
+	evt_t cc;
 	int extra;
-#else
-	unsigned long extra;			/* remove warning "comparison between signed/unsigned" */
-#endif
 
 	if (!cycles)
 		return;
-	c = get_cycles ();
-	extra = c & (CYCLE_UNIT - 1);
-//fprintf ( stderr , "do_cycles_ce020_long %d %d %d\n" , cycles , c , extra );
+	cc = get_cycles ();
+	extra = cc & (CYCLE_UNIT - 1);
+//fprintf ( stderr , "do_cycles_ce020 %d %d %d\n" , cycles , c , extra );
 	if (extra) {
 		extra = CYCLE_UNIT - extra;
 		if (extra >= cycles) {
@@ -436,7 +504,7 @@ void do_cycles_ce020_long (unsigned long cycles)
 		do_cycles (1 * CYCLE_UNIT);
 		c -= CYCLE_UNIT;
 	}
-	if (c > 0)
+	if (c)
 		do_cycles (c);
 }
 

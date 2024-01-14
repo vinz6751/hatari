@@ -5,7 +5,7 @@
   or at your option any later version. Read the file gpl.txt for details.
 
   Functions for showing and parsing all of Hatari's command line options.
-  
+
   To add a new option:
   - Add option ID to the enum
   - Add the option information to HatariOptions[]
@@ -18,7 +18,6 @@ const char Options_fileid[] = "Hatari options.c";
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <SDL.h>
 
 #include "main.h"
 #include "version.h"
@@ -59,13 +58,18 @@ static bool bBiosIntercept;
 /*  List of supported options. */
 enum {
 	OPT_HEADER,	/* options section header */
+
 	OPT_HELP,		/* general options */
 	OPT_VERSION,
 	OPT_CONFIRMQUIT,
 	OPT_CONFIGFILE,
 	OPT_KEYMAPFILE,
+	OPT_COUNTRY_CODE,
+	OPT_KBD_LAYOUT,
+	OPT_LANGUAGE,
 	OPT_FASTFORWARD,
 	OPT_AUTOSTART,
+
 	OPT_MONO,		/* common display options */
 	OPT_MONITOR,
 	OPT_TOS_RESOLUTION,
@@ -81,18 +85,21 @@ enum {
 	OPT_MAXWIDTH,
 	OPT_MAXHEIGHT,
 	OPT_ZOOM,
-	OPT_FORCEBPP,
 	OPT_DISABLE_VIDEO,
+
 	OPT_BORDERS,		/* ST/STE display options */
 	OPT_SPEC512,
 	OPT_VIDEO_TIMING,
+
 	OPT_RESOLUTION,		/* TT/Falcon display options */
 	OPT_FORCE_MAX,
 	OPT_ASPECT,
+
 	OPT_VDI,		/* VDI options */
 	OPT_VDI_PLANES,
 	OPT_VDI_WIDTH,
 	OPT_VDI_HEIGHT,
+
 	OPT_SCREEN_CROP,        /* screen capture options */
 	OPT_AVIRECORD,
 	OPT_AVIRECORD_VCODEC,
@@ -100,6 +107,7 @@ enum {
 	OPT_AVIRECORD_FPS,
 	OPT_AVIRECORD_FILE,
 	OPT_SCRSHOT_DIR,
+
 	OPT_JOYSTICK,		/* device options */
 	OPT_JOYSTICK0,
 	OPT_JOYSTICK1,
@@ -116,10 +124,14 @@ enum {
 #endif
 	OPT_RS232_IN,
 	OPT_RS232_OUT,
-	// OPT_SCCB,
-	// OPT_SCCBIN,
-	OPT_SCCBOUT,
-	OPT_DRIVEA,		/* disk options */
+	OPT_SCCA_IN,
+	OPT_SCCA_OUT,
+	OPT_SCCA_LAN_IN,
+	OPT_SCCA_LAN_OUT,
+	OPT_SCCB_IN,
+	OPT_SCCB_OUT,
+
+	OPT_DRIVEA,		/* floppy options */
 	OPT_DRIVEB,
 	OPT_DRIVEA_HEADS,
 	OPT_DRIVEB_HEADS,
@@ -127,7 +139,8 @@ enum {
 	OPT_DISKB,
 	OPT_FASTFLOPPY,
 	OPT_WRITEPROT_FLOPPY,
-	OPT_HARDDRIVE,
+
+	OPT_HARDDRIVE,		/* HD options */
 	OPT_WRITEPROT_HD,
 	OPT_GEMDOS_CASE,
 	OPT_GEMDOS_HOSTTIME,
@@ -138,32 +151,39 @@ enum {
 	OPT_IDEMASTERHDIMAGE,
 	OPT_IDESLAVEHDIMAGE,
 	OPT_IDEBYTESWAP,
+
 	OPT_MEMSIZE,		/* memory options */
 	OPT_TT_RAM,
 	OPT_MEMSTATE,
+
 	OPT_TOS,		/* ROM options */
 	OPT_PATCHTOS,
 	OPT_CARTRIDGE,
+
 	OPT_CPULEVEL,		/* CPU options */
 	OPT_CPUCLOCK,
 	OPT_COMPATIBLE,
-	OPT_CPU_CYCLE_EXACT,	/* WinUAE CPU/FPU/bus options */
+	OPT_CPU_CYCLE_EXACT,
 	OPT_CPU_ADDR24,
 	OPT_FPU_TYPE,
 /*	OPT_FPU_JIT_COMPAT, */
 	OPT_FPU_SOFTFLOAT,
 	OPT_MMU,
+
 	OPT_MACHINE,		/* system options */
 	OPT_BLITTER,
-	OPT_VME,
 	OPT_DSP,
+	OPT_VME,
+	OPT_RTC_YEAR,
 	OPT_TIMERD,
 	OPT_FASTBOOT,
+
 	OPT_MICROPHONE,		/* sound options */
 	OPT_SOUND,
 	OPT_SOUNDBUFFERSIZE,
 	OPT_SOUNDSYNC,
 	OPT_YM_MIXING,
+
 #ifdef WIN32
 	OPT_WINCON,		/* debug options */
 #endif
@@ -176,6 +196,7 @@ enum {
 	OPT_NATFEATS,
 	OPT_TRACE,
 	OPT_TRACEFILE,
+	OPT_MSG_REPEAT,
 	OPT_PARSE,
 	OPT_SAVECONFIG,
 	OPT_CONTROLSOCKET,
@@ -199,7 +220,7 @@ typedef struct {
 
 /* it's easier to edit these if they are kept in the same order as the enums */
 static const opt_t HatariOptions[] = {
-	
+
 	{ OPT_HEADER, NULL, NULL, NULL, "General" },
 	{ OPT_HELP,      "-h", "--help",
 	  NULL, "Print this help text and exit" },
@@ -211,6 +232,12 @@ static const opt_t HatariOptions[] = {
 	  "<file>", "Read (additional) configuration values from <file>" },
 	{ OPT_KEYMAPFILE, "-k", "--keymap",
 	  "<file>", "Read (additional) keyboard mappings from <file>" },
+	{ OPT_COUNTRY_CODE, NULL, "--country",
+	  "<x>", "Set country code for multi-code EmuTOS ROM" },
+	{ OPT_KBD_LAYOUT, NULL, "--layout",
+	  "<x>", "Set (TT/Falcon) NVRAM keyboard layout" },
+	{ OPT_LANGUAGE, NULL, "--language",
+	  "<x>", "Set (TT/Falcon) NVRAM language" },
 	{ OPT_FASTFORWARD, NULL, "--fast-forward",
 	  "<bool>", "Help skipping stuff on fast machine" },
 	{ OPT_AUTOSTART, NULL, "--auto",
@@ -241,15 +268,12 @@ static const opt_t HatariOptions[] = {
 	  "<bool>", "Show statusbar (floppy leds etc)" },
 	{ OPT_DRIVE_LED,   NULL, "--drive-led",
 	  "<bool>", "Show overlay drive led when statusbar isn't shown" },
-
 	{ OPT_MAXWIDTH, NULL, "--max-width",
 	  "<x>", "Maximum Hatari screen width before scaling" },
 	{ OPT_MAXHEIGHT, NULL, "--max-height",
 	  "<x>", "Maximum Hatari screen height before scaling" },
 	{ OPT_ZOOM, "-z", "--zoom",
 	  "<x>", "Hatari screen/window scaling factor (1.0 - 8.0)" },
-	{ OPT_FORCEBPP, NULL, "--bpp",
-	  "<x>", "Force internal bitdepth (x = 15/16/32, 0=disable)" },
 	{ OPT_DISABLE_VIDEO,   NULL, "--disable-video",
 	  "<bool>", "Run emulation without displaying video (audio only)" },
 
@@ -330,11 +354,17 @@ static const opt_t HatariOptions[] = {
 	  "<file>", "Enable serial port and use <file> as the input device" },
 	{ OPT_RS232_OUT, NULL, "--rs232-out",
 	  "<file>", "Enable serial port and use <file> as the output device" },
-	//{ OPT_SCCB, NULL, "--scc-b",
-	//  "<file>", "Enable SCC channel B and use <file> as the device" },
-	//{ OPT_SCCBIN, NULL, "--scc-b-in",
-	//  "<file>", "Enable SCC channel B and use <file> as the input" },
-	{ OPT_SCCBOUT, NULL, "--scc-b-out",
+	{ OPT_SCCA_IN, NULL, "--scc-a-in",
+	  "<file>", "Enable SCC channel A and use <file> as the input" },
+	{ OPT_SCCA_OUT, NULL, "--scc-a-out",
+	  "<file>", "Enable SCC channel A and use <file> as the output" },
+	{ OPT_SCCA_LAN_IN, NULL, "--scc-a-lan-in",
+	  "<file>", "Enable LAN on SCC channel A and use <file> as the input" },
+	{ OPT_SCCA_LAN_OUT, NULL, "--scc-a-lan-out",
+	  "<file>", "Enable LAN on SCC channel A and use <file> as the output" },
+	{ OPT_SCCB_IN, NULL, "--scc-b-in",
+	  "<file>", "Enable SCC channel B and use <file> as the input" },
+	{ OPT_SCCB_OUT, NULL, "--scc-b-out",
 	  "<file>", "Enable SCC channel B and use <file> as the output" },
 
 	{ OPT_HEADER, NULL, NULL, NULL, "Floppy drive" },
@@ -383,7 +413,7 @@ static const opt_t HatariOptions[] = {
 	{ OPT_MEMSIZE,   "-s", "--memsize",
 	  "<x>", "ST RAM size (x = size in MiB from 0 to 14, 0 = 512KiB ; else size in KiB)" },
 	{ OPT_TT_RAM,   NULL, "--ttram",
-	  "<x>", "TT RAM size (x = size in MiB from 0 to 512)" },
+	  "<x>", "TT RAM size (x = size in MiB from 0 to 1024, in steps of 4)" },
 	{ OPT_MEMSTATE,   NULL, "--memstate",
 	  "<file>", "Load memory snap-shot <file>" },
 
@@ -424,6 +454,8 @@ static const opt_t HatariOptions[] = {
 	  "<x>", "DSP emulation (x = none/dummy/emu, Falcon only)" },
 	{ OPT_VME,	NULL, "--vme",
 	  "<x>", "VME mode (x = none/dummy, MegaSTE/TT only)" },
+	{ OPT_RTC_YEAR,   NULL, "--rtc-year",
+	  "<x>", "Set initial year for RTC (0, 1980 <= x < 2080)" },
 	{ OPT_TIMERD,    NULL, "--timer-d",
 	  "<bool>", "Patch Timer-D (about doubles ST emulation speed)" },
 	{ OPT_FASTBOOT, NULL, "--fast-boot",
@@ -463,6 +495,8 @@ static const opt_t HatariOptions[] = {
 	  "<flags>", "Activate emulation tracing, see '--trace help'" },
 	{ OPT_TRACEFILE, NULL, "--trace-file",
 	  "<file>", "Save trace output to <file> (default=stderr)" },
+	{ OPT_MSG_REPEAT, NULL, "--msg-repeat",
+	  NULL, "Toggle log/trace message repeats (default=suppress)" },
 	{ OPT_PARSE, NULL, "--parse",
 	  "<file>", "Parse/execute debugger commands from <file>" },
 	{ OPT_SAVECONFIG, NULL, "--saveconfig",
@@ -579,7 +613,7 @@ static const opt_t *Opt_ShowHelpSection(const opt_t *start_opt)
 		}
 	}
 	last = opt;
-	
+
 	/* output all options */
 	for (opt = start_opt; opt != last; opt++)
 	{
@@ -675,7 +709,6 @@ bool Opt_ShowError(unsigned int optid, const char *value, const char *error)
  */
 int Opt_ValueAlignMinMax(int value, int align, int min, int max)
 {
-	value = (value/align)*align;
 	if (value > max)
 	{
 		/* align down */
@@ -687,7 +720,7 @@ int Opt_ValueAlignMinMax(int value, int align, int min, int max)
 		min += align-1;
 		return (min/align)*align;
 	}
-	return value;
+	return (value/align)*align;
 }
 
 
@@ -738,6 +771,23 @@ static bool Opt_Bool(const char *arg, int optid, bool *conf)
 	return Opt_ShowError(optid, orig, "Not a <bool> value");
 }
 
+/**
+ * If 'conf' given, set it to parsed country code value
+ * Return false for any other value, otherwise true
+ */
+static bool Opt_CountryCode(const char *arg, int optid, int *conf)
+{
+	int val = TOS_ParseCountryCode(arg);
+	if (val != TOS_LANG_UNKNOWN)
+	{
+		*conf = val;
+		return true;
+	}
+	Opt_ShowError(optid, arg, "Invalid value");
+	TOS_ShowCountryCodes();
+	return false;
+
+}
 
 /**
  * checks str argument against options of type "--option<digit>".
@@ -792,7 +842,7 @@ static int Opt_CheckBracketValue(const opt_t *opt, const char *str)
  * matches string under given index in the argv against all Hatari
  * short and long options. If match is found, returns ID for that,
  * otherwise shows help and returns OPT_ERROR.
- * 
+ *
  * Checks also that if option is supposed to have argument,
  * whether there's one.
  */
@@ -803,7 +853,7 @@ static int Opt_WhichOption(int argc, const char * const argv[], int idx)
 	int id;
 
 	for (opt = HatariOptions; opt->id != OPT_ERROR; opt++)
-	{	
+	{
 		/* exact option name matches? */
 		if (!((opt->str && !strcmp(str, opt->str)) ||
 		      (opt->chr && !strcmp(str, opt->chr))))
@@ -903,7 +953,7 @@ static bool Opt_ValidateOptions(void)
 bool Opt_IsAtariProgram(const char *path)
 {
 	bool ret = false;
-	Uint8 test[2];
+	uint8_t test[2];
 	FILE *fp;
 
 	if (File_Exists(path) && (fp = fopen(path, "rb")))
@@ -1011,7 +1061,7 @@ static bool Opt_HandleArgument(const char *path)
 bool Opt_ParseParameters(int argc, const char * const argv[])
 {
 	int ncpu, skips, planes, cpuclock, threshold, memsize;
-	int dev, port, freq, temp, drive;
+	int dev, port, freq, temp, drive, year;
 	const char *errstr, *str;
 	int i, ok = true;
 	float zoom;
@@ -1160,24 +1210,6 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			ok = Opt_Bool(argv[++i], OPT_DRIVE_LED, &ConfigureParams.Screen.bShowDriveLed);
 			break;
 
-		case OPT_FORCEBPP:
-			planes = atoi(argv[++i]);
-			switch(planes)
-			{
-			case 32:
-			case 16:
-			case 15:
-				break;       /* supported */
-			case 24:
-				planes = 32; /* We do not support 24 bpp (yet) */
-				break;
-			default:
-				return Opt_ShowError(OPT_FORCEBPP, argv[i], "Invalid bit depth");
-			}
-			Log_Printf(LOG_DEBUG, "Hatari window BPP = %d.\n", planes);
-			ConfigureParams.Screen.nForceBpp = planes;
-			break;
-
 		case OPT_DISABLE_VIDEO:
 			ok = Opt_Bool(argv[++i], OPT_DISABLE_VIDEO, &ConfigureParams.Screen.DisableVideo);
 			break;
@@ -1236,7 +1268,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 		case OPT_RESOLUTION:
 			ok = Opt_Bool(argv[++i], OPT_RESOLUTION, &ConfigureParams.Screen.bKeepResolution);
 			break;
-			
+
 		case OPT_MAXWIDTH:
 			ConfigureParams.Screen.nMaxWidth = atoi(argv[++i]);
 			break;
@@ -1248,7 +1280,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 		case OPT_FORCE_MAX:
 			ok = Opt_Bool(argv[++i], OPT_FORCE_MAX, &ConfigureParams.Screen.bForceMax);
 			break;
-			
+
 		case OPT_ASPECT:
 			ok = Opt_Bool(argv[++i], OPT_ASPECT, &ConfigureParams.Screen.bAspectCorrect);
 			break;
@@ -1370,7 +1402,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				return Opt_ShowError(OPT_JOYSTICK0, argv[i], "Invalid joystick port");
 			}
 			i += 1;
-			if (strcasecmp(argv[i], "none") == 0)
+			if (strcasecmp(argv[i], "none") == 0 || strcasecmp(argv[i], "off") == 0)
 			{
 				ConfigureParams.Joysticks.Joy[port].nJoystickMode = JOYSTICK_DISABLED;
 			}
@@ -1407,7 +1439,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 					argv[i], sizeof(ConfigureParams.Midi.sMidiInFileName),
 					&ConfigureParams.Midi.bEnableMidi);
 			break;
-			
+
 		case OPT_MIDI_OUT:
 			i += 1;
 			ok = Opt_StrCpy(OPT_MIDI_OUT, false, ConfigureParams.Midi.sMidiOutFileName,
@@ -1430,26 +1462,41 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 					&ConfigureParams.RS232.bEnableRS232);
 			break;
 
-		/*
-		case OPT_SCCB:
+		case OPT_SCCA_IN:
 			i += 1;
-			ok = Opt_StrCpy(OPT_SCCB, true, ConfigureParams.RS232.sSccBInFileName,
-					argv[i], sizeof(ConfigureParams.RS232.sSccBInFileName),
-					&ConfigureParams.RS232.bEnableSccB);
-			strcpy(ConfigureParams.RS232.sSccBOutFileName, ConfigureParams.RS232.sSccBInFileName);
+			ok = Opt_StrCpy(OPT_SCCA_IN, true, ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_A_SERIAL],
+					argv[i], sizeof(ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_A_SERIAL]),
+					&ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_A_SERIAL]);
 			break;
-		case OPT_SCCBIN:
+		case OPT_SCCA_OUT:
 			i += 1;
-			ok = Opt_StrCpy(OPT_SCCBIN, true, ConfigureParams.RS232.sSccBInFileName,
-					argv[i], sizeof(ConfigureParams.RS232.sSccBInFileName),
-					&ConfigureParams.RS232.bEnableSccB);
+			ok = Opt_StrCpy(OPT_SCCA_OUT, false, ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_A_SERIAL],
+					argv[i], sizeof(ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_A_SERIAL]),
+					&ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_A_SERIAL]);
 			break;
-		*/
-		case OPT_SCCBOUT:
+		case OPT_SCCA_LAN_IN:
 			i += 1;
-			ok = Opt_StrCpy(OPT_SCCBOUT, false, ConfigureParams.RS232.sSccBOutFileName,
-					argv[i], sizeof(ConfigureParams.RS232.sSccBOutFileName),
-					&ConfigureParams.RS232.bEnableSccB);
+			ok = Opt_StrCpy(OPT_SCCA_LAN_IN, true, ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_A_LAN],
+					argv[i], sizeof(ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_A_LAN]),
+					&ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_A_LAN]);
+			break;
+		case OPT_SCCA_LAN_OUT:
+			i += 1;
+			ok = Opt_StrCpy(OPT_SCCA_LAN_OUT, false, ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_A_LAN],
+					argv[i], sizeof(ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_A_LAN]),
+					&ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_A_LAN]);
+			break;
+		case OPT_SCCB_IN:
+			i += 1;
+			ok = Opt_StrCpy(OPT_SCCB_IN, true, ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_B],
+					argv[i], sizeof(ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_B]),
+					&ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_B]);
+			break;
+		case OPT_SCCB_OUT:
+			i += 1;
+			ok = Opt_StrCpy(OPT_SCCB_OUT, false, ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_B],
+					argv[i], sizeof(ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_B]),
+					&ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_B]);
 			break;
 
 			/* disk options */
@@ -1695,7 +1742,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 
 		case OPT_TT_RAM:
 			memsize = atoi(argv[++i]);
-			ConfigureParams.Memory.TTRamSize_KB = Opt_ValueAlignMinMax(memsize+3, 4, 0, 512) * 1024;
+			ConfigureParams.Memory.TTRamSize_KB = Opt_ValueAlignMinMax(memsize+3, 4, 0, 1024) * 1024;
 			bLoadAutoSave = false;
 			break;
 
@@ -1780,7 +1827,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 
 		case OPT_FPU_TYPE:
 			i += 1;
-			if (strcasecmp(argv[i], "none") == 0)
+			if (strcasecmp(argv[i], "none") == 0 || strcasecmp(argv[i], "off") == 0)
 			{
 				ConfigureParams.System.n_FPUType = FPU_NONE;
 			}
@@ -1890,13 +1937,14 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 		case OPT_TIMERD:
 			ok = Opt_Bool(argv[++i], OPT_TIMERD, &ConfigureParams.System.bPatchTimerD);
 			break;
+
 		case OPT_FASTBOOT:
 			ok = Opt_Bool(argv[++i], OPT_FASTBOOT, &ConfigureParams.System.bFastBoot);
 			break;
 
 		case OPT_DSP:
 			i += 1;
-			if (strcasecmp(argv[i], "none") == 0)
+			if (strcasecmp(argv[i], "none") == 0 || strcasecmp(argv[i], "off") == 0)
 			{
 				ConfigureParams.System.nDSPType = DSP_TYPE_NONE;
 			}
@@ -1925,7 +1973,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			{
 				ConfigureParams.System.nVMEType = VME_TYPE_DUMMY;
 			}
-			else if (strcasecmp(argv[i], "none") == 0)
+			else if (strcasecmp(argv[i], "none") == 0 || strcasecmp(argv[i], "off") == 0)
 			{
 				ConfigureParams.System.nVMEType = VME_TYPE_NONE;
 			}
@@ -1934,6 +1982,15 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				return Opt_ShowError(OPT_VME, argv[i], "Unknown VME type");
 			}
 			bLoadAutoSave = false; /* TODO: needed? */
+			break;
+
+		case OPT_RTC_YEAR:
+			year = atoi(argv[++i]);
+			if(year && (year < 1980 || year >= 2080))
+			{
+				return Opt_ShowError(OPT_RTC_YEAR, argv[i], "Invalid RTC year");
+			}
+			ConfigureParams.System.nRtcYear = year;
 			break;
 
 			/* sound options */
@@ -1994,9 +2051,21 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 		case OPT_SOUNDSYNC:
 			ok = Opt_Bool(argv[++i], OPT_SOUNDSYNC, &ConfigureParams.Sound.bEnableSoundSync);
 			break;
-			
+
 		case OPT_MICROPHONE:
 			ok = Opt_Bool(argv[++i], OPT_MICROPHONE, &ConfigureParams.Sound.bEnableMicrophone);
+			break;
+
+		case OPT_COUNTRY_CODE:
+			ok = Opt_CountryCode(argv[++i], OPT_COUNTRY_CODE, &ConfigureParams.Keyboard.nCountryCode);
+			break;
+
+		case OPT_LANGUAGE:
+			ok = Opt_CountryCode(argv[++i], OPT_LANGUAGE, &ConfigureParams.Keyboard.nLanguage);
+			break;
+
+		case OPT_KBD_LAYOUT:
+			ok = Opt_CountryCode(argv[++i], OPT_KBD_LAYOUT, &ConfigureParams.Keyboard.nKbdLayout);
 			break;
 
 		case OPT_KEYMAPFILE:
@@ -2009,7 +2078,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				ConfigureParams.Keyboard.nKeymapType = KEYMAP_LOADED;
 			}
 			break;
-			
+
 			/* debug options */
 #ifdef WIN32
 		case OPT_WINCON:
@@ -2107,7 +2176,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				return Opt_ShowError(OPT_DISASM, argv[i], errstr);
 			}
 			break;
-			
+
 		case OPT_TRACE:
 			i += 1;
 			errstr = Log_SetTraceOptions(argv[i]);
@@ -2127,6 +2196,10 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			ok = Opt_StrCpy(OPT_TRACEFILE, false, ConfigureParams.Log.sTraceFileName,
 					argv[i], sizeof(ConfigureParams.Log.sTraceFileName),
 					NULL);
+			break;
+
+		case OPT_MSG_REPEAT:
+			Log_ToggleMsgRepeat();
 			break;
 
 		case OPT_CONTROLSOCKET:
@@ -2190,7 +2263,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			Log_Printf(LOG_DEBUG, "Exit after %d VBLs.\n", val);
 			Main_SetRunVBLs(val);
 			break;
-		       
+
 		case OPT_BENCHMARK:
 			BenchmarkMode = true;
 			break;
@@ -2221,7 +2294,7 @@ char *Opt_MatchOption(const char *text, int state)
 {
 	static int i, len;
 	const char *name;
-	
+
 	if (!state)
 	{
 		/* first match */

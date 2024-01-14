@@ -1,24 +1,34 @@
-cmake_minimum_required(VERSION 3.3 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
-project(Hatari C)
-enable_testing()
-
-set(APP_NAME "Hatari")
-
-set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-
-include(CheckIncludeFiles)
-include(CheckFunctionExists)
-include(CheckStructHasMember)
-include(CheckCCompilerFlag)
-include(DistClean)
-include(CheckTypeSize)
+if(POLICY CMP0148)
+	# Should be removed when we replaced FindPythonInterp with FindPython3
+	# and cmake_minimum_required has been bumped to 3.12
+	cmake_policy(SET CMP0148 OLD)
+endif(POLICY CMP0148)
 
 # Set build type to "Release" if user did not specify any build type yet
 # Other possible values: Debug, Release, RelWithDebInfo and MinSizeRel
 if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release)
 endif(NOT CMAKE_BUILD_TYPE)
+
+if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release")
+	set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Target architectures")
+	set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9" CACHE STRING "Target minimum macOS version")
+endif(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release")
+
+project(Hatari C)
+enable_testing()
+
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+
+include(CheckIncludeFiles)
+include(CheckFunctionExists)
+include(CheckStructHasMember)
+include(CheckSymbolExists)
+include(CheckCCompilerFlag)
+include(DistClean)
+include(CheckTypeSize)
 
 # set(CMAKE_VERBOSE_MAKEFILE 1)
 
@@ -51,7 +61,7 @@ set(ENABLE_DSP_EMU 1
     CACHE BOOL "Enable DSP 56k emulator for Falcon mode")
 set(ENABLE_TRACING 1
     CACHE BOOL "Enable tracing messages for debugging")
-set(ENABLE_SMALL_MEM 0
+set(ENABLE_SMALL_MEM 1
     CACHE BOOL "Enable to use less memory - at the expense of emulation speed")
 
 # Run-time checks with GCC / LLVM (Clang) AddressSanitizer:
@@ -86,15 +96,20 @@ endif()
 if(APPLE)
 	set(ENABLE_OSX_BUNDLE 1
 	    CACHE BOOL "Built Hatari as macOS application bundle")
-	# set(CMAKE_OSX_ARCHITECTURES "i386" CACHE STRING "Target architectures" FORCE)
-	# set(CMAKE_OSX_SYSROOT "/Developer/SDKs/MacOSX10.6.sdk" CACHE STRING "10.6 SDK" FORCE)
-	# set(CMAKE_OSX_DEPLOYMENT_TARGET "10.5" CACHE STRING "Target Min 10.5" FORCE)
 	set(ADDITIONAL_INCLUDES ${FRAMEWORKS})
 	set_source_files_properties(${FRAMEWORKS} PROPERTIES MACOSX_PACKAGE_LOCATION Frameworks)
+	set(CMAKE_XCODE_ATTRIBUTE_LD_RUNPATH_SEARCH_PATHS "@loader_path/../Frameworks")
+	# set(CMAKE_XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--deep")
 else()
 	set(ENABLE_OSX_BUNDLE 0
 	    CACHE BOOL "Built Hatari as macOS application bundle")
 endif(APPLE)
+
+if(ENABLE_OSX_BUNDLE)
+	set(APP_NAME "Hatari")
+else()
+	set(APP_NAME "hatari")
+endif(ENABLE_OSX_BUNDLE)
 
 # ####################
 # Check for libraries:
@@ -130,11 +145,6 @@ if (NOT ENABLE_OSX_BUNDLE)
 	endif(X11_FOUND)
 endif()
 
-find_package(PortAudio)
-if(PortAudio_FOUND)
-	set(HAVE_PORTAUDIO 1)
-endif(PortAudio_FOUND)
-
 find_package(PortMidi)
 if(PortMidi_FOUND)
 	set(HAVE_PORTMIDI 1)
@@ -149,6 +159,16 @@ find_package(Udev)
 if(Udev_FOUND)
 	set(HAVE_UDEV 1)
 endif(Udev_FOUND)
+
+find_package(Capstone)
+if(Capstone_FOUND)
+	set(CMAKE_REQUIRED_INCLUDES ${CAPSTONE_INCLUDE_DIR})
+	CHECK_INCLUDE_FILE("m68k.h" HAVE_CAPSTONE_M68K)
+	unset(CMAKE_REQUIRED_INCLUDES)
+	if(NOT HAVE_CAPSTONE_M68K)
+		unset(Capstone_FOUND)
+	endif()
+endif(Capstone_FOUND)
 
 # Check if Large File Support is available with the standard POSIX flags
 set (HATARI_LFS_FLAGS "-D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64")
@@ -190,10 +210,10 @@ endif(MSVC)
 # Check for optional headers:
 # ###########################
 
+check_include_files(byteswap.h HAVE_BYTESWAP_H)
 check_include_files(termios.h HAVE_TERMIOS_H)
 check_include_files(sys/ioctl.h HAVE_SYS_IOCTL_H)
 check_include_files(strings.h HAVE_STRINGS_H)
-check_include_files(${SDL2_INCLUDE_DIR}/SDL_config.h HAVE_SDL_CONFIG_H)
 check_include_files(sys/time.h HAVE_SYS_TIME_H)
 check_include_files(sys/times.h HAVE_SYS_TIMES_H)
 check_include_files(utime.h HAVE_UTIME_H)
@@ -204,6 +224,8 @@ check_include_files("sys/socket.h;sys/un.h" HAVE_UNIX_DOMAIN_SOCKETS)
 # Check for optional functions:
 # #############################
 
+check_symbol_exists(bswap_16 "byteswap.h" HAVE_BSWAP_16)
+check_symbol_exists(bswap_32 "byteswap.h" HAVE_BSWAP_32)
 check_symbol_exists(cfmakeraw "termios.h" HAVE_CFMAKERAW)
 check_symbol_exists(tcsetattr "termios.h" HAVE_TCSETATTR)
 check_symbol_exists(setenv "stdlib.h" HAVE_SETENV)
@@ -216,7 +238,6 @@ check_symbol_exists(statvfs "sys/statvfs.h" HAVE_STATVFS)
 check_symbol_exists(fseeko "stdio.h" HAVE_FSEEKO)
 check_symbol_exists(ftello "stdio.h" HAVE_FTELLO)
 check_symbol_exists(flock "sys/file.h" HAVE_FLOCK)
-check_symbol_exists(strlcpy "string.h" HAVE_LIBC_STRLCPY)
 check_struct_has_member("struct dirent" d_type dirent.h HAVE_DIRENT_D_TYPE)
 
 # #############
@@ -243,11 +264,33 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wwrite-strings -Wsign-compare")
 	#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wextra -Wno-unused-parameter -Wno-empty-body")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wformat-security")
-	#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wshadow -D_FORTIFY_SOURCE=2")
+	if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_FORTIFY_SOURCE=2")
+	endif()
+endif()
+
+CHECK_C_COMPILER_FLAG("-Wimplicit-fallthrough=2" WARN_FALLTRHOUGH_AVAILABLE)
+if(WARN_FALLTRHOUGH_AVAILABLE)
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wimplicit-fallthrough=2")
+endif(WARN_FALLTRHOUGH_AVAILABLE)
+
+CHECK_C_COMPILER_FLAG("-Wshadow=local" WARN_SHADOW_LOCAL_AVAILABLE)
+if(WARN_SHADOW_LOCAL_AVAILABLE)
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wshadow=local")
+endif(WARN_SHADOW_LOCAL_AVAILABLE)
+
+if(EMSCRIPTEN)
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-rtti -fno-exceptions -O3 -s USE_SDL=2 -s USE_ZLIB=1")
+	set(CMAKE_EXECUTABLE_SUFFIX ".html")
 endif()
 
 if(ENABLE_WERROR)
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
+	if (ENABLE_TRACING)
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
+	else()
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wno-error=unused-function")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-error=unused-but-set-variable")
+	endif()
 endif(ENABLE_WERROR)
 
 # Building Hatari w/o optimization is no fun...
@@ -321,16 +364,32 @@ configure_file(${CMAKE_SOURCE_DIR}/cmake/config-cmake.h
 
 add_subdirectory(src)
 add_subdirectory(doc)
-add_subdirectory(tests)
 add_subdirectory(tools)
+
+if(NOT CMAKE_CROSSCOMPILING)
+	add_subdirectory(tests)
+endif(NOT CMAKE_CROSSCOMPILING)
 
 include(FindPythonInterp)
 if(PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR LESS 3)
 	message("Note: Hatari needs at least Python 3 ... ignoring older version")
 	unset(PYTHONINTERP_FOUND)
 endif()
+set(PYTHON_GTK_FOUND 0)
 if(PYTHONINTERP_FOUND)
-	add_subdirectory(python-ui)
+	execute_process(COMMAND ${PYTHON_EXECUTABLE} -c "\
+import gi\n\
+gi.require_version('Gtk', '3.0')\n\
+from gi.repository import Gtk\n\
+from gi.repository import Gdk\n\
+from gi.repository import GdkPixbuf\n\
+from gi.repository import GLib"
+			RESULT_VARIABLE PYTHON_GTK_RESULT
+			OUTPUT_QUIET ERROR_QUIET)
+	if(${PYTHON_GTK_RESULT} EQUAL 0)
+		set(PYTHON_GTK_FOUND 1)
+		add_subdirectory(python-ui)
+	endif()
 endif(PYTHONINTERP_FOUND)
 
 if(UNIX AND NOT ENABLE_OSX_BUNDLE)
@@ -350,7 +409,7 @@ Libraries summary :
 -------------------
 ")
 
-message("  - sdl :\tusing SDL2 v${SDL2_VERSION_STRING}")
+message("  - sdl :\tusing SDL2 ${SDL2_VERSION}")
 
 if(Readline_FOUND)
   message( "  - readline :\tfound, enables history/completion in the debugger" )
@@ -370,12 +429,6 @@ else()
   message( "  - png :\tnot found, install it to compress screenshot/avi files using png" )
 endif(PNG_FOUND)
 
-if(PortAudio_FOUND)
-  message( "  - portaudio :\tfound, enables the microphone input in Falcon mode" )
-else()
-  message( "  - portaudio :\tnot found, install it to enable the Falcon microphone input" )
-endif(PortAudio_FOUND)
-
 if(PortMidi_FOUND)
   message( "  - portmidi :\tfound, required for (non-Linux) MIDI support" )
 else()
@@ -388,6 +441,12 @@ else()
   message( "  - capsimage :\tv5 not found, install it to use .IPF, .RAW and .CTR disk images" )
 endif(CapsImage_FOUND)
 
+if(PYTHON_GTK_FOUND)
+  message( "  - python Gtk:\tfound, python-ui can be used" )
+else()
+  message( "  - python Gtk:\tnot found, install it to enable the python-ui" )
+endif(PYTHON_GTK_FOUND)
+
 if(Udev_FOUND)
   message( "  - udev :\tfound, required for media change detection in NatFeats SCSI" )
   message( "          \tdevices on udev-based systems (Linux)" )
@@ -397,6 +456,12 @@ else()
     message( "          \tNatFeats SCSI devices on udev-based systems (Linux)" )
   endif()
 endif(Udev_FOUND)
+
+if(Capstone_FOUND)
+  message( "  - capstone :\tfound, allows nice disassembly with --disasm ext" )
+else()
+  message( "  - capstone :\tnot found, install it to use extend disassembly options" )
+endif(Capstone_FOUND)
 
 if (HATARI_HAVE_LFS)
 	message("  - LFS :\tLarge File Support is available (size of off_t = ${SIZEOF_OFF_T}),")

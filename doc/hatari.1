@@ -35,7 +35,7 @@ be emulated as a virtual GEMDOS hard disk, a floppy disk image or an
 Atari program that should be autostarted.  In the last case the
 program's directory will be used as the C: drive from where this
 program will be started.  These shortcuts correspond to "-d <dir>",
-"--disk-a <floppy image>" and "-d <dir> --auto C:\<program>"
+"--disk-a <floppy image>" and "-d <dir> --auto C:\\<program>"
 options.
 .PP
 Booting will be done from the disk image or directory that's given
@@ -62,7 +62,37 @@ override values read from the global and user configuration
 files
 .TP
 .B \-k, \-\-keymap <file>
-Load keyboard mapping from <file>
+Load keyboard mapping from <file>. "Symbolic" mapping will be used as
+fallback for keys not defined there
+.TP
+.B \-\-country <x>
+Set EmuTOS ROM country code on Mega/ST/STe machines lacking NVRAM,
+when EmuTOS indicates supporting multiple ones.
+
+In 512k EmuTOS images, country code selects the TOS keyboard layout
+and screen refresh (US = 60Hz NTSC, 50Hz PAL otherwise).  In 1024k
+EmuTOS images (coming with Hatari binaries and supporting multiple
+languages), country code selects also TOS language.
+
+Alternatively, one can use "tos-lang-change" tool from EmuTOS project
+to modify country code in the ROM image file itself. That works
+also for TOS v4
+.TP
+.B \-\-layout <x>
+Set NVRAM keyboard layout value. While both TT and Falcon machines
+have NVRAM, only TOS v4 and EmuTOS 512k / 1024k ROM versions support
+multiple layouts.
+
+Regardless of whether keyboard layout change is done through the ROM
+country code or NVRAM setting, it may impact your key mappings in
+Hatari key mapping files, Hatari Python UI arguments, or key injection
+in your automation scripts for Hatari debugger, command FIFO or
+hconsole tool
+.TP
+.B \-\-language <x>
+Set NVRAM language value. While both TT and Falcon machines have
+NVRAM, only TOS v4 and EmuTOS 1024k ROM versions support multiple
+languages.  Default is taken from the LANG environment variable
 .TP
 .B \-\-fast\-forward <bool>
 Fast-forward through the boring parts by running emulator at maximum
@@ -220,17 +250,16 @@ Use extended VDI resolution with bit depth <x> (x = 1, 2 or 4)
 Use extended VDI resolution with width <w> (320 < w <= 2048)
 .TP
 .B \-\-vdi\-height <h>
-Use extended VDI resolution with height <h> (200 < h <= 1280)
+Use extended VDI resolution with height <h> (160 < h <= 1280)
 .PP
 Because TOS and popular GEM programs have problems with certain screen
 sizes, Hatari enforces restrictions on VDI screen size.  In total VDI
-screen size is limited to 32-300kB, width to multiple of 128/planes,
-and height to multiple of 16 pixels (or 8, depending on system font
-height). That translates to following maximum standard resolutions for
-the VDI mode:
+screen size is limited to 32-300kB, width to multiple of 16/planes,
+and height to multiple of 8 pixels (smaller system font height). That
+translates to following maximum standard resolutions for the VDI mode:
 .TP
 .B monochrome
-FullHD (1920×1080), WUXGA (1920x1200) and QWXGA (2048x1152)
+FullHD (1920x1080), WUXGA (1920x1200) and QWXGA (2048x1152)
 .TP
 .B 2 plane mode (4 colors)
 HD (1280x720), WXGA (1280x768) and XGA+ (1152x864)
@@ -296,6 +325,26 @@ Enable MFP serial port support and use <file> as the input device
 .TP
 .B \-\-rs232\-out <filename>
 Enable MFP serial port support and use <file> as the output device
+.TP
+.B \-\-scc\-a\-in <filename>
+Enable SCC channel A serial port support and use <file> for the input
+(only for Mega-STE, TT and Falcon)
+.TP
+.B \-\-scc\-a\-out <filename>
+Enable SCC channel A serial port support and use <file> for the output
+(only for Mega-STE, TT and Falcon)
+.TP
+.B \-\-scc\-a\-lan\-in <filename>
+Enable SCC channel A LAN port support and use <file> for the input
+(only for Mega-STE and TT)
+.TP
+.B \-\-scc\-a\-lan\-out <filename>
+Enable SCC channel A LAN port support and use <file> for the output
+(only for Mega-STE and TT)
+.TP
+.B \-\-scc\-b\-in <filename>
+Enable SCC channel B serial port support and use <file> for the input
+(only for Mega-STE, TT and Falcon)
 .TP
 .B \-\-scc\-b\-out <filename>
 Enable SCC channel B serial port support and use <file> for the output
@@ -399,11 +448,11 @@ Load memory snap-shot <file>
 .B \-s, \-\-memsize <x>
 Set amount of emulated ST RAM, x = 1 to 14 MiB, or 0 for 512 KiB.
 Other values are considered as a size in KiB.  While Hatari allows
-14MB for all machine types, on real HW, ST/STE can have up to 4MB,
-MegaSTE/TT up to 10MB and Falcon up to 14MB RAM.
+14 MiB for all machine types, on real HW, ST/STE can have up to 4 MiB,
+MegaSTE/TT up to 10 MiB, and Falcon up to 14 MiB RAM.
 .TP
 .B \-s, \-\-ttram <x>
-Set amount of emulated TT RAM, x = 0 to 512 MiB (in 4MB steps)
+Set amount of emulated TT RAM, x = 0 to 1024 MiB (in 4MiB steps)
 
 .SH "ROM options"
 .TP
@@ -427,8 +476,8 @@ Specify CPU (680x0) to use (use x >= 1 with EmuTOS or TOS >= 2.06 only!)
 Set the CPU clock (8, 16 or 32 Mhz)
 .TP
 .B \-\-compatible <bool>
-Use a more compatible, but slower 68000 CPU mode with
-better prefetch accuracy and cycle counting
+Use a more compatible 68000 CPU mode with better prefetch accuracy and
+cycle counting
 .TP
 .B \-\-cpu\-exact <bool>
 Use cycle exact CPU emulation (cache emulation)
@@ -468,6 +517,12 @@ With "none", register access causes errors (=no VME HW), which is
 needed for Linux to boot with TT emulation until there's full SCU
 interrupt support.  No VME tracing support.
 .TP
+.B \-\-rtc\-year <x>
+With the default value 0, RTC date and time are taken from the host.
+If application does not handle current dates, this can be used to
+change RTC year to a more compatible one.  See also "--gemdos-time"
+option.
+.TP
 .B \-\-timer\-d <bool>
 Patch redundantly high Timer-D frequency set by TOS.  This can
 increase Hatari speed significantly (especially for ST/e emulation) as
@@ -494,7 +549,7 @@ supports.
 .B \-\-sound\-buffer\-size <x>
 SDL's sound buffer size: 10-100, or 0 to use default buffer size.
 By default Hatari uses an SDL buffer size of 1024 samples, which
-gives approximatively 20-30 ms of sound depending on the chosen sound
+gives approximately 20-30 ms of sound depending on the chosen sound
 frequency. Under some OS or with not fully supported sound card, this
 default setting can cause a bigger delay at lower frequency (nearly 0.5 sec).
 In that case, you can use this option to force the size of the sound
@@ -559,8 +614,7 @@ console output, not just normal BIOS console output.
 .TP
 .B \-\-disasm <x>
 Set disassembly options.  'uae' and 'ext' select the disassembly engine
-to use, bitmask sets output options for the external disassembly engine
-and 'help' lists them.
+to use, bitmask sets disassembly output options and 'help' lists them.
 .TP
 .B \-\-natfeats <bool>
 Enable/disable (basic) Native Features support. EmuTOS uses it
@@ -575,6 +629,11 @@ for available (comma separated) tracing flags
 .TP
 .B \-\-trace\-file <file>
 Save trace output to <file> (default=stderr)
+.TP
+.B \-\-msg\-repeat
+Toggle whether successive repeats of identical log or trace messages
+will be suppressed, so that only their count is shown (default=suppress).
+Disassembly, register and (multi-line) AES traces bypass this feature
 .TP
 .B \-\-parse <file>
 Parse/execute debugger commands from <file>

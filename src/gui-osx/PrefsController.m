@@ -60,7 +60,7 @@ CNF_PARAMS CurrentParams;
 
 
 // Keys to be listed in the Joysticks dropdowns
-SDLKey Preferences_KeysForJoysticks[] =
+SDL_Keycode Preferences_KeysForJoysticks[] =
 {
 	SDLK_BACKSPACE,
 	SDLK_TAB,
@@ -133,16 +133,16 @@ SDLKey Preferences_KeysForJoysticks[] =
 	SDLK_y,
 	SDLK_z,
 	SDLK_DELETE,
-	SDLK_KP0,
-	SDLK_KP1,
-	SDLK_KP2,
-	SDLK_KP3,
-	SDLK_KP4,
-	SDLK_KP5,
-	SDLK_KP6,
-	SDLK_KP7,
-	SDLK_KP8,
-	SDLK_KP9,
+	SDLK_KP_0,
+	SDLK_KP_1,
+	SDLK_KP_2,
+	SDLK_KP_3,
+	SDLK_KP_4,
+	SDLK_KP_5,
+	SDLK_KP_6,
+	SDLK_KP_7,
+	SDLK_KP_8,
+	SDLK_KP_9,
 	SDLK_KP_PERIOD,
 	SDLK_KP_DIVIDE,
 	SDLK_KP_MULTIPLY,
@@ -174,20 +174,20 @@ SDLKey Preferences_KeysForJoysticks[] =
 	SDLK_F13,
 	SDLK_F14,
 	SDLK_F15,
-	SDLK_NUMLOCK,
+	SDLK_NUMLOCKCLEAR,
 	SDLK_CAPSLOCK,
-	SDLK_SCROLLOCK,
+	SDLK_SCROLLLOCK,
 	SDLK_RSHIFT,
 	SDLK_LSHIFT,
 	SDLK_RCTRL,
 	SDLK_LCTRL,
 	SDLK_RALT,
 	SDLK_LALT,
-	SDLK_RMETA,
-	SDLK_LMETA,
+	SDLK_RGUI,
+	SDLK_LGUI,
 	SDLK_MODE,
 	SDLK_HELP,
-	SDLK_PRINT,
+	SDLK_PRINTSCREEN,
 	SDLK_SYSREQ,
 	SDLK_MENU,
 	SDLK_POWER,
@@ -235,7 +235,7 @@ char szPath[FILENAME_MAX];
 /*  Returns: TRUE is the user selected a path, FALSE if he/she aborted   */
 /*-----------------------------------------------------------------------*/
 - (BOOL)choosePathForControl:(NSTextField*)textField chooseDirectories:(BOOL)chooseDirectories defaultInitialDir:(NSString*)defaultInitialDir 
-    mutString:(NSMutableString *)mutString what:(NSArray *)what
+    mutString:(NSMutableString *)mutString
 {
 	NSString *directoryToOpen ;
 	NSString *fileToPreselect ;
@@ -248,8 +248,9 @@ char szPath[FILENAME_MAX];
 	 {	directoryToOpen = defaultInitialDir.stringByExpandingTildeInPath ;	// no path: use user's directory
 		fileToPreselect = nil; } ;
 
-	newPath = [NSApp hopenfile:chooseDirectories defoDir:directoryToOpen
-                      defoFile:fileToPreselect types:what];
+	newPath = [NSApp hopenfile:chooseDirectories
+					   defoDir:directoryToOpen
+                      defoFile:fileToPreselect];
 	if (newPath.length != 0)												// user canceled if empty
 	{
 		[mutString setString:[NSString stringWithString:newPath]] ;			// save this path
@@ -269,9 +270,10 @@ char szPath[FILENAME_MAX];
 - (void)insertFloppyImageIntoDrive:(int)drive forTextField:(NSTextField*)floppyTextField
                           realPath:(NSMutableString *)realPath
 {
-	if ([self choosePathForControl:floppyTextField  chooseDirectories:NO
+	if ([self choosePathForControl:floppyTextField
+				 chooseDirectories:NO
                  defaultInitialDir:imgeDir
-                         mutString:realPath  what:@[allF]])
+                         mutString:realPath])
 		
 		Floppy_SetDiskFileName(drive, [realPath cStringUsingEncoding:NSASCIIStringEncoding], NULL);
 		// Insert the floppy image at this path  ????
@@ -281,7 +283,7 @@ char szPath[FILENAME_MAX];
 //-----------------------------------------------------------------------------
 - (NSString *)initial:(NSString *)route
 {
-BOOL flag1, flag2;
+	BOOL flag1, flag2;
 
 	if ((route==nil) || (route.length == 0))  return @"~" ;
 	flag1 = [[NSFileManager defaultManager] fileExistsAtPath:route isDirectory:&flag2] ;
@@ -296,14 +298,14 @@ BOOL flag1, flag2;
 - (IBAction)chooseCartridgeImage:(id)sender;
 {
     [self choosePathForControl: cartridgeImage chooseDirectories:NO defaultInitialDir:[self initial:cartridge]  // cartridge
-        mutString:cartridge  what:@[allC]];
+        mutString:cartridge];
 }
 
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseDefaultImagesLocation:(id)sender
 {
 	[self choosePathForControl: defaultImagesLocation chooseDirectories:YES defaultInitialDir:[self initial:imgeDir]                                // images location
-        mutString:imgeDir  what:nil];
+        mutString:imgeDir];
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseFloppyImageA:(id)sender
@@ -319,62 +321,62 @@ BOOL flag1, flag2;
 - (IBAction)chooseGemdosImage:(id)sender																// directory for Gemdos
 {
 	[self choosePathForControl: gemdosImage chooseDirectories:YES defaultInitialDir:INITIAL_DIR(gemdos)	// gemdos
-                mutString:gemdos  what:nil] ;
+                mutString:gemdos] ;
 	if (gemdos.length >2 ) [gemdosImage setStringValue:[NSApp pathUser:gemdos]] ;
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseHdImage:(id)sender
 {
 	[self choosePathForControl: hdImage chooseDirectories:NO defaultInitialDir:[self initial:hrdDisk]	// HD image ?
-            mutString:hrdDisk  what:@[@"img",@"hdv"]] ;
+            mutString:hrdDisk] ;
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseIdeMasterHdImage:(id)sender
 {
 	[self choosePathForControl: ideMasterHdImage chooseDirectories:NO defaultInitialDir:[self initial:masterIDE]		// IDE master
-            mutString:masterIDE  what:@[@"hdv"]];
+            mutString:masterIDE];
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseIdeSlaveHdImage:(id)sender
 {
 	[self choosePathForControl: ideSlaveHdImage chooseDirectories:NO defaultInitialDir:[self initial:slaveIDE]			// IDE slave
-            mutString:slaveIDE  what:@[@"hdv"]];
+            mutString:slaveIDE];
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseKeyboardMappingFile:(id)sender
 {
 	[self choosePathForControl: keyboardMappingFile chooseDirectories:NO defaultInitialDir:[self initial:keyboard]		// keyboard mapping
-            mutString:keyboard  what:@[@"txt",@"map"]];
+            mutString:keyboard];
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseMidiOutputFile:(id)sender
 {
 	[self choosePathForControl: writeMidiToFile chooseDirectories:NO defaultInitialDir:[self initial:midiOut]			// midi output 
-            mutString:midiOut  what:@[@"mid"]];
+            mutString:midiOut];
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)choosePrintToFile:(id)sender
 {
 	[self choosePathForControl: printToFile chooseDirectories:NO defaultInitialDir:[self initial:printit]				// print to file
-            mutString:printit  what:@[@"prn"]];
+            mutString:printit];
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseRS232InputFile:(id)sender
 {
 	[self choosePathForControl: readRS232FromFile chooseDirectories:NO defaultInitialDir:[self initial:rs232In]			// RS232 input
-        mutString:rs232In  what:nil];
+        mutString:rs232In];
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseRS232OutputFile:(id)sender
 {
 	[self choosePathForControl: writeRS232ToFile chooseDirectories:NO defaultInitialDir:[self initial:rs232Out]			// RS232 output
-        mutString:rs232Out  what:nil];
+        mutString:rs232Out];
 }
 /*----------------------------------------------------------------------*/
 - (IBAction)chooseTosImage:(id)sender;
 {
 	[self choosePathForControl: tosImage chooseDirectories:NO defaultInitialDir:[self initial:TOS]						// TOS image
-        mutString:TOS  what:@[allT]];
+        mutString:TOS];
 }
 
 
@@ -551,7 +553,7 @@ BOOL flag1, flag2;
 	unsigned int i;
 	for (i = 0; i < Preferences_cKeysForJoysticks; i++)
 	{
-		SDLKey key = Preferences_KeysForJoysticks[i];
+		SDL_Keycode key = Preferences_KeysForJoysticks[i];
 		const char* szKeyName = SDL_GetKeyName(key);
 		[dropDown addItemWithTitle:[[NSString stringWithCString:szKeyName encoding:NSASCIIStringEncoding] capitalizedString]];
 		dropDown.lastItem.tag = key ;
@@ -570,13 +572,16 @@ BOOL flag1, flag2;
 	[midiInPort  addItemWithTitle:[NSString stringWithCString:szinPortName encoding:NSASCIIStringEncoding]];
 	[midiOutPort addItemWithTitle:[NSString stringWithCString:szinPortName encoding:NSASCIIStringEncoding]];
 	
+#ifdef HAVE_PORTMIDI
 	int i = 0;
-	const char* portName;
-	while ((portName = Midi_Host_GetPortName(i++, true)))
+	const char* portName = NULL;
+	while ((portName = Midi_Host_GetPortName(portName, MIDI_NAME_NEXT, MIDI_FOR_INPUT)))
 		[midiInPort addItemWithTitle:[NSString stringWithCString:portName encoding:NSASCIIStringEncoding]];
 	i = 0;
-	while ((portName = Midi_Host_GetPortName(i++, false)))
+	portName = NULL;
+	while ((portName = Midi_Host_GetPortName(portName, MIDI_NAME_NEXT, MIDI_FOR_OUTPUT)))
 		[midiOutPort addItemWithTitle:[NSString stringWithCString:portName encoding:NSASCIIStringEncoding]];
+#endif		// HAVE_PORTMIDI
 }
 
 // ----------------------------------------------------------------------------
@@ -593,10 +598,12 @@ BOOL flag1, flag2;
 //
 - (void)saveMidiDropdowns
 {
-	strncpy(ConfigureParams.Midi.sMidiInPortName,  [[midiInPort  titleOfSelectedItem] UTF8String], FILENAME_MAX);
-	strncpy(ConfigureParams.Midi.sMidiOutPortName, [[midiOutPort titleOfSelectedItem] UTF8String], FILENAME_MAX);
-	ConfigureParams.Midi.sMidiInPortName[FILENAME_MAX-1]  = 0;
-	ConfigureParams.Midi.sMidiOutPortName[FILENAME_MAX-1] = 0;
+	const char *midiOutPortUtf8String = [[midiOutPort titleOfSelectedItem] UTF8String];
+	const char *midiInPortUtf8String = [[midiInPort  titleOfSelectedItem] UTF8String];
+	strlcpy(ConfigureParams.Midi.sMidiOutPortName, midiOutPortUtf8String ? midiOutPortUtf8String : "Off",
+	        sizeof(ConfigureParams.Midi.sMidiOutPortName));
+	strlcpy(ConfigureParams.Midi.sMidiInPortName, midiInPortUtf8String ? midiInPortUtf8String : "Off",
+	        sizeof(ConfigureParams.Midi.sMidiInPortName));
 }
 
 
@@ -1065,8 +1072,8 @@ BOOL flag1, flag2;
 	 case 3: ConfigureParams.System.VideoTimingMode=VIDEO_TIMING_MODE_WS3; break;
 	 case 4: ConfigureParams.System.VideoTimingMode=VIDEO_TIMING_MODE_WS4; break;
 	}
-	int ttramsizeMB=[TTRAMSizeValue intValue]*1024;										//JV 12-2016
-	ConfigureParams.Memory.TTRamSize_KB=ttramsizeMB;
+	int ttramsize_MB=[TTRAMSizeValue intValue];							//JV 12-2016
+	ConfigureParams.Memory.TTRamSize_KB=1024*ttramsize_MB;
 
 	//EXPORT_NTEXTFIELD(TTRAMSizeValue, ConfigureParams.Memory.TTRamSize_KB);			// MS 12-2016
 

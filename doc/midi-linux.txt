@@ -27,18 +27,23 @@ Quick start
 *If* Hatari is built with PortMidi, getting MIDI output from Hatari is
 simple.
 
-Just start a MIDI software synthetizer (on Debian/Ubuntu):
-$ sudo apt install qsynth
-$ qsynth
+Install a MIDI software synthetizer and virtual MIDI keyboard
+(on Debian/Ubuntu):
+  sudo apt install qsynth vkeybd
 
-(Hatari scans for ALSA MIDI devices only at start, so the MIDI output
-and input devices need to be there before starting Hatari.)
+Then start them:
+  qsynth &
+  vkeybd &
 
-Then start Hatari, and in the "Devices" option screen, select "Enable
-MIDI emulation" and for the "output" option, select "Synth input
-port".
+(Hatari scans for the ALSA MIDI devices only at start, so the relevant
+MIDI output and input devices need to be there before starting Hatari.)
+
+Start Hatari, and in the "Devices" option screen, select "Enable MIDI
+emulation".  Then for the input option, select "Virtual Keyboard",
+and for the "output" option, select "Synth input port".
 
 That's all!
+
 
 Rest of this document is about lower level MIDI (raw device) access
 without PortMidi, Linux MIDI usage in general, and notes of some
@@ -48,15 +53,17 @@ useful Open Source MIDI software available on Linux.
 Using a soundcard with built-in MIDI synthesis capability
 ---------------------------------------------------------
 
-If your soundcard is capable of playing MIDI sound (i.e. you can play a .mid
-file with the "aplaymidi" command using the appropriate port), you can use this
-synthesis device for Hatari, too. However, you still might have to install and
-connect a virtual midi device, so that Hatari can access it through a
-/dev/snd/midiC*D* device file (see instructions below).
+If your soundcard is capable of playing MIDI sound (i.e. you can play
+a .mid file with the "aplaymidi" command using the appropriate port),
+you can use this synthesis device for Hatari, too. However, you still
+might have to install and connect a virtual midi device, so that
+Hatari can access it through a /dev/snd/midiC*D* device file (see
+instructions below).
 
-Please note that you might also have to load instrument patches into your sound
-card first, for example with the program "sfxload" for AWE64 based sound cards,
-or with the program "sbiload" for OPL3 based sound cards.
+Please note that you might also have to load instrument patches into
+your sound card first, for example with the program "sfxload" for
+AWE64 based sound cards, or with the program "sbiload" for OPL3 based
+sound cards.
 
 
 Making MIDI soft-synthetizer to work with ALSA
@@ -64,38 +71,44 @@ Making MIDI soft-synthetizer to work with ALSA
 
 Make Timidity into an ALSA output device with:
   timidity -Os -iA
-(-O: output=alsa, -i: interface=alsa)
+
+(-Os: output=alsa, -iA: interface=alsa)
 
 To make it use less CPU and be more responsive, use:
   timidity -Os -iA -B2,8 -EFreverb=0 -EFchorus=0
-(-B: 2,8=set small buffers, -EFx=0: disable effects)
+
+(-B2,8: set small buffers, -EF<x>=0: disable given effect)
+
 
 Make vkeybd (virtual midi keyboard app) into an ALSA input device with:
   vkeybd
+
 Or  use the newer & nicer looking "Virtual MIDI Piano Keyboard":
   vmpk
+
 
 View the resulting (software) ALSA input and output devices:
   aconnect -i -o
 
 Then connect the vkeybd output port to the timidity input port with:
   aconnect <vkeybd port> <timidity port>
-Or use one of the GUI programs for this like kaconnect, aconnectgui etc.
 
-Now you can use the virtual midi keyboard for testing the sound
-synthesis.
+(Or use e.g. 'aconnectgui' GUI to do it.)
+
+=> Virtual midi keyboard can now be used to test the sound synthesis.
 
 
-Finally you can test how well midi files are played.
-Check which ALSA port Timidity provides:
+You can also test how well midi files are played. Check which ALSA
+port Timidity provides:
   aplaymidi -l
 
 And use that port for playing a midi file:
   aplaymidi -p <port, e.g. 129:0> test.mid
-(or use 'pmidi')
 
-Note: Remember that you need to re-connect the (virtual) device
-ports each time you restart them.
+('pmidi' could also be used, and takes same args.)
+
+Remember that you need to re-connect the (virtual) device ports each
+time you restart program adding that port.
 
 
 Using FluidSynth instead of Timidity
@@ -115,10 +128,6 @@ And if you don't like the FluidSynth shell, use:
 Qsynth provides a GUI for above:
   qsynth <soundfont>
 
-Note: FluidSynth v1.0.7a in older (obsolete) Linux distros has buffer
-overruns, but they're fixed in v1.0.8 or newer that are in the current
-Linux distros.
-
 
 Other software synthetizers
 ---------------------------
@@ -134,14 +143,15 @@ Making it all to work with Hatari
 Hatari requires midi hardware devices to work, it doesn't support ALSA
 directly without PortMidi.  To get the software synth ALSA devices to
 appear as HW midi devices, run following as *root*:
-  modprobe snd-virmidi
+  modprobe snd-virmidi [midi_devs=<count>]
 
 When you list your ALSA output devices with:
   aconnect -o
-You should see in addition to the soft-synth also 4 virtual hardware
-devices.
 
-Then connect (with aconnect or one of the GUIs) the first virtual
+You should see in addition to the soft-synth also virtual hardware
+devices (default device count is 4).
+
+Then connect (with 'aconnect' or one of the GUIs) the first virtual
 HW port to the same soft-synth port where you connected the virtual
 midi keyboard.
 
@@ -153,17 +163,17 @@ VirMidi was Card 1 and as the port used above was first one, I give
 Hatari the following midi device:
   hatari --midi-out /dev/snd/midiC1D0
 
-And to connect that device to synthetizer, if you use Fluid Synth
-(or its Qsynth GUI), you can for example do:
+If you use Fluid Synth (or its Qsynth GUI), you can connect that
+device to synthetizer for example with:
   aconnect "Virtual Raw MIDI 1-0" "FLUID Synth"
 
 (For the virtual midi keyboard, give same device with --midi-in option.)
 
-Note: In older (obsolete) Linux distros SDL_mixer may take exclusive
-access to the PCM (sound) device, but as the soft synthetizer is
-already connected to it, one may need to use --nosound option to get
-MIDI sound working. In recent distros this shouldn't anymore be
-a problem thanks to Pulseaudio.
+Note: In obsolete Linux distros, SDL_mixer may take exclusive access
+to the PCM (sound) device, but as the soft synthetizer is already
+connected to it, one may need to use '--sound off' option to get MIDI
+sound working. In current distros this should not be a problem (thanks
+to Pulseaudio etc).
 
 
 Forwarding MIDI over network
@@ -183,10 +193,10 @@ MIDI-networking two Hatari emulators can be most easily done with socat.
 
 MIDI networking over normal TCP/IP network:
   @remote.site:
-    socat -b1 PTY,raw,echo=0,link=/tmp/midi1 TCP4-LISTEN:33333 &
+    socat -b1 PTY,rawer,link=/tmp/midi1 TCP4-LISTEN:33333 &
     hatari --midi-in /tmp/midi1 --midi-out /tmp/midi1 &
   @local.site:
-    socat -b1 PTY,raw,echo=0,link=/tmp/midi2 TCP4:remote.site:33333 &
+    socat -b1 PTY,rawer,link=/tmp/midi2 TCP4:remote.site:33333 &
     hatari --midi-in /tmp/midi2 --midi-out /tmp/midi2 &
 
 Buffer size (-b) is set to one just in case (by default socat buffer
@@ -199,12 +209,16 @@ the port, most likely you need to run "socat" as root.  To test this
 with a single machine, use "localhost" as the "remote.site".
 
 Local MIDI network:
-  socat -b1 PTY,raw,echo=0,link=/tmp/midi1 PTY,raw,echo=0,link=/tmp/midi2 &
+  socat -b1 PTY,rawer,link=/tmp/midi1 PTY,rawer,link=/tmp/midi2 &
   hatari --midi-in /tmp/midi1 --midi-out /tmp/midi1 &
   hatari --midi-in /tmp/midi2 --midi-out /tmp/midi2 &
 
-If you don't have "socat" installed, local-midi-ring.sh script shows how
-to join several (local) Hatari emulators into a MIDI ring using fifos.
+If you don't have "socat" installed, 'hatari-local-midi-ring.sh'
+script shows how to join several (local) Hatari emulators into a MIDI
+ring using FIFOs.
+
+Note: (virtual) MIDI devices cannot be used for networking because
+those do not support passing of arbitrary data.
 
 
 Linux & Atari MIDI related Software
@@ -242,13 +256,13 @@ FluidSynth:
   http://www.iiwu.org/fluidsynth/
 
 Horgand:
-  http://horgand.berlios.de/
+  https://sourceforge.net/projects/horgand.berlios/
 
 Soundfonts:
   http://alsa.opensrc.org/SoundFontHandling
 
 List of some soft-synthetizers:
-  http://alsa.opensrc.org/SoftSynths
+  http://alsa.opensrc.org/SoftSynth
 
 Kaconnect:
   http://alsamodular.sourceforge.net/

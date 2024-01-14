@@ -74,6 +74,8 @@
 
 const char M68000_fileid[] = "Hatari m68000.c";
 
+#include <inttypes.h>
+
 #include "main.h"
 #include "configuration.h"
 #include "gemdos.h"
@@ -89,6 +91,9 @@ const char M68000_fileid[] = "Hatari m68000.c";
 #include "tos.h"
 #include "falcon/crossbar.h"
 #include "cart.h"
+#include "cpu/cpummu.h"
+#include "cpu/cpummu030.h"
+#include "scc.h"
 
 #if ENABLE_DSP_EMU
 #include "dsp.h"
@@ -97,12 +102,15 @@ const char M68000_fileid[] = "Hatari m68000.c";
 /* information about current CPU instruction */
 cpu_instruction_t CpuInstruction;
 
-Uint32 BusErrorAddress;		/* Stores the offending address for bus-/address errors */
+uint32_t BusErrorAddress;		/* Stores the offending address for bus-/address errors */
 bool bBusErrorReadWrite;	/* 0 for write error, 1 for read error */
 int nCpuFreqShift;		/* Used to emulate higher CPU frequencies: 0=8MHz, 1=16MHz, 2=32Mhz */
 int WaitStateCycles = 0;	/* Used to emulate the wait state cycles of certain IO registers */
 int BusMode = BUS_MODE_CPU;	/* Used to tell which part is owning the bus (cpu, blitter, ...) */
 bool CPU_IACK = false;		/* Set to true during an exception when getting the interrupt's vector number */
+bool CpuRunCycleExact;		/* true if the cpu core is running in cycle exact mode (ie m68k_run_1_ce, m68k_run_2ce, ...) */
+bool CpuRunFuncNoret;		/* true if the cpu core is using cpufunctbl_noret instead of cpufunctbl to execute opcode */
+
 static bool M68000_DebuggerFlag;/* Is debugger enabled or not ? */
 
 int LastOpcodeFamily = i_NOP;	/* see the enum in readcpu.h i_XXX */
@@ -402,32 +410,44 @@ void M68000_PatchCpuTables(void)
 	if (Cart_UseBuiltinCartridge())
 	{
 		/* Hatari's specific illegal opcodes */
-		cpufunctbl[GEMDOS_OPCODE] = OpCode_GemDos;	/* 0x0008 */
-		cpufunctbl[PEXEC_OPCODE] = OpCode_Pexec;	/* 0x0009 */
-		cpufunctbl[SYSINIT_OPCODE] = OpCode_SysInit;	/* 0x000a */
-		cpufunctbl[VDI_OPCODE] = OpCode_VDI;		/* 0x000c */
+		cpufunctbl[GEMDOS_OPCODE] = OpCode_GemDos;				/* 0x0008 */
+		cpufunctbl_noret[GEMDOS_OPCODE] = OpCode_GemDos_noret;			/* 0x0008 */
+		cpufunctbl[PEXEC_OPCODE] = OpCode_Pexec;				/* 0x0009 */
+		cpufunctbl_noret[PEXEC_OPCODE] = OpCode_Pexec_noret;			/* 0x0009 */
+		cpufunctbl[SYSINIT_OPCODE] = OpCode_SysInit;				/* 0x000a */
+		cpufunctbl_noret[SYSINIT_OPCODE] = OpCode_SysInit_noret;		/* 0x000a */
+		cpufunctbl[VDI_OPCODE] = OpCode_VDI;					/* 0x000c */
+		cpufunctbl_noret[VDI_OPCODE] = OpCode_VDI_noret;			/* 0x000c */
 	}
 	else
 	{
 		/* No built-in cartridge loaded : set same handler as 0x4afc (illegal) */
-		cpufunctbl[GEMDOS_OPCODE] = cpufunctbl[0x4afc];   /* 0x0008 */
-		cpufunctbl[PEXEC_OPCODE] = cpufunctbl[0x4afc];    /* 0x0009*/
-		cpufunctbl[SYSINIT_OPCODE] = cpufunctbl[0x4afc];  /* 0x000a */
-		cpufunctbl[VDI_OPCODE] = cpufunctbl[0x4afc];      /* 0x000c */
+		cpufunctbl[GEMDOS_OPCODE] = cpufunctbl[0x4afc];   			/* 0x0008 */
+		cpufunctbl_noret[GEMDOS_OPCODE] = cpufunctbl_noret[0x4afc];   		/* 0x0008 */
+		cpufunctbl[PEXEC_OPCODE] = cpufunctbl[0x4afc];   		 	/* 0x0009*/
+		cpufunctbl_noret[PEXEC_OPCODE] = cpufunctbl_noret[0x4afc];    		/* 0x0009*/
+		cpufunctbl[SYSINIT_OPCODE] = cpufunctbl[0x4afc]; 		 	/* 0x000a */
+		cpufunctbl_noret[SYSINIT_OPCODE] = cpufunctbl_noret[0x4afc];  		/* 0x000a */
+		cpufunctbl[VDI_OPCODE] = cpufunctbl[0x4afc];      			/* 0x000c */
+		cpufunctbl_noret[VDI_OPCODE] = cpufunctbl_noret[0x4afc];      		/* 0x000c */
 	}
 
 	/* Install opcodes for Native Features? */
 	if (ConfigureParams.Log.bNatFeats)
 	{
 		/* illegal opcodes for emulators Native Features */
-		cpufunctbl[NATFEAT_ID_OPCODE] = OpCode_NatFeat_ID;	/* 0x7300 */
-		cpufunctbl[NATFEAT_CALL_OPCODE] = OpCode_NatFeat_Call;	/* 0x7301 */
+		cpufunctbl[NATFEAT_ID_OPCODE] = OpCode_NatFeat_ID;			/* 0x7300 */
+		cpufunctbl_noret[NATFEAT_ID_OPCODE] = OpCode_NatFeat_ID_noret;		/* 0x7300 */
+		cpufunctbl[NATFEAT_CALL_OPCODE] = OpCode_NatFeat_Call;			/* 0x7301 */
+		cpufunctbl_noret[NATFEAT_CALL_OPCODE] = OpCode_NatFeat_Call_noret;	/* 0x7301 */
 	}
 	else
 	{
 		/* No Native Features : set same handler as 0x4afc (illegal) */
-		cpufunctbl[NATFEAT_ID_OPCODE] = cpufunctbl[ 0x4afc ];	/* 0x7300 */
-		cpufunctbl[NATFEAT_CALL_OPCODE] = cpufunctbl[ 0x4afc ];	/* 0x7300 */
+		cpufunctbl[NATFEAT_ID_OPCODE] = cpufunctbl[ 0x4afc ];			/* 0x7300 */
+		cpufunctbl_noret[NATFEAT_ID_OPCODE] = cpufunctbl_noret[ 0x4afc ];	/* 0x7300 */
+		cpufunctbl[NATFEAT_CALL_OPCODE] = cpufunctbl[ 0x4afc ];			/* 0x7301 */
+		cpufunctbl_noret[NATFEAT_CALL_OPCODE] = cpufunctbl_noret[ 0x4afc ];	/* 0x7301 */
 	}
 }
 
@@ -437,7 +457,7 @@ void M68000_PatchCpuTables(void)
  */
 void M68000_MemorySnapShot_Capture(bool bSave)
 {
-	int len;
+	size_t len;
 	uae_u8 chunk[ 1000 ];
 
 	MemorySnapShot_Store(&pendingInterrupts, sizeof(pendingInterrupts));	/* for intlev() */
@@ -535,7 +555,7 @@ bool M68000_IsVerboseBusError(uint32_t pc, uint32_t addr)
  *   AccessType : BUS_ERROR_ACCESS_INSTR or BUS_ERROR_ACCESS_DATA
  *   val : value we wanted to write in case of a BUS_ERROR_WRITE
  */
-void M68000_BusError ( Uint32 addr , int ReadWrite , int Size , int AccessType , uae_u32 val )
+void M68000_BusError ( uint32_t addr , int ReadWrite , int Size , int AccessType , uae_u32 val )
 {
 	LOG_TRACE(TRACE_CPU_EXCEPTION, "Bus error %s at address $%x PC=$%x.\n",
 	          ReadWrite ? "reading" : "writing", addr, M68000_InstrPC);
@@ -564,7 +584,7 @@ void M68000_BusError ( Uint32 addr , int ReadWrite , int Size , int AccessType ,
 /**
  * Exception handler
  */
-void M68000_Exception(Uint32 ExceptionNr , int ExceptionSource)
+void M68000_Exception(uint32_t ExceptionNr , int ExceptionSource)
 {
 	if ( ExceptionNr > 24 && ExceptionNr < 32 )		/* Level 1-7 interrupts */
 	{
@@ -593,6 +613,7 @@ void M68000_Exception(Uint32 ExceptionNr , int ExceptionSource)
  * before being processed.
  * So, we need to check which IRQ are set/cleared at the same time
  * and update level 6 accordingly : level 6 = MFP_IRQ OR DSP_IRQ
+ * Level 5 (SCC) is only used on Mega STE, TT and Falcon
  *
  * [NP] NOTE : temporary case for interrupts with WinUAE CPU in cycle exact mode
  * In CE mode, interrupt state should be updated on each subcycle of every opcode
@@ -602,7 +623,7 @@ void M68000_Exception(Uint32 ExceptionNr , int ExceptionSource)
  */
 void	M68000_Update_intlev ( void )
 {	
-	Uint8	Level6_IRQ;
+	uint8_t	Level6_IRQ;
 
 #if ENABLE_DSP_EMU
 	Level6_IRQ = MFP_GetIRQ_CPU() | DSP_GetHREQ();
@@ -614,15 +635,27 @@ void	M68000_Update_intlev ( void )
 	else
 		pendingInterrupts &= ~(1 << 6);
 
+	if ( SCC_Get_Line_IRQ() == SCC_IRQ_ON )
+		pendingInterrupts |= (1 << 5);
+	else
+		pendingInterrupts &= ~(1 << 5);
+
 	if ( pendingInterrupts )
 		doint();
 	else
 		M68000_UnsetSpecial ( SPCFLAG_INT | SPCFLAG_DOINT );
 
-	/* Temporary case for WinUAE CPU in CE mode */
-	/* doint() will update regs.ipl_pin, so copy it into regs.ipl */
-	if ( ConfigureParams.System.bCycleExactCpu )
-		regs.ipl = regs.ipl_pin;			/* See ipl_fetch() in cpu/cpu_prefetch.h */
+	/* Temporary case for WinUAE CPU hanlding IPL in CE mode */
+	/* doint() will update regs.ipl_pin, so copy it into regs.ipl[0] */
+	/* TODO : see ipl_fetch_next / update_ipl, we should not reset currcycle */
+	/* (when counting Hatari's internal cycles) to have correct value */
+	/* in regs.ipl_pin_change_evt. In the meantime we always copy regs.ipl_pin */
+	/* to regs.ipl_pin_p, else ipl_fetch_next can return an incorrect ipl */
+	if ( CpuRunCycleExact )
+	{
+		regs.ipl[0] = regs.ipl_pin;			/* See ipl_fetch() in cpu/cpu_prefetch.h */
+		regs.ipl_pin_p = regs.ipl_pin;			/* See ipl_fetch_next() */
+	}
 }
 
 
@@ -641,10 +674,14 @@ void	M68000_Update_intlev ( void )
  * - When CPU runs in cycle exact mode, wait states are added immediately.
  * - For other less precise modes, all the wait states are cumulated and added
  *   after the instruction was processed.
+ *
+ * NOTE : this function should only be called in the context of emulating an opcode,
+ * it should not be called in the context of an internal timer called by CycInt_Process()
+ * because cycles would not be correctly added to CyclesGlobalClockCounter
  */
 void M68000_WaitState(int WaitCycles)
 {
-	if ( ConfigureParams.System.bCycleExactCpu )
+	if ( CpuRunCycleExact )
 		currcycle += ( WaitCycles * CYCLE_UNIT / 2 );	/* Add wait states immediately to the CE cycles counter */
 	else
 	{
@@ -666,9 +703,11 @@ int	M68000_WaitEClock ( void )
 	int	CyclesToNextE;
 
 	/* We must wait for the next multiple of 10 cycles to be synchronised with E Clock */
-	CyclesToNextE = 10 - CyclesGlobalClockCounter % 10;
+	CyclesToNextE = 10 - Cycles_GetClockCounterImmediate() % 10;
 	if ( CyclesToNextE == 10 )		/* we're already synchronised with E Clock */
 		CyclesToNextE = 0;
+
+//fprintf ( stderr , "wait eclock delay=%d clock=%"PRIu64"\n" , CyclesToNextE, Cycles_GetClockCounterImmediate() );
 	return CyclesToNextE;
 }
 
@@ -684,7 +723,7 @@ int	M68000_WaitEClock ( void )
  */
 static void	M68000_SyncCpuBus ( bool read )
 {
-	Uint64	Cycles;
+	uint64_t	Cycles;
 	int	CyclesToNextBus;
 
 	if ( read )
@@ -800,8 +839,11 @@ int	DMA_MaskAddressHigh ( void )
 	if (Config_IsMachineTT() || Config_IsMachineFalcon())
 		return 0xff;					/* Falcon / TT can access 24 bits with DMA */
 
-	else if (ConfigureParams.Memory.STRamSize_KB > 4*1024)	/* ST/STE with more than 4 MB */
+	else if (ConfigureParams.Memory.STRamSize_KB > 8*1024)	/* ST/STE with more than 8 MB */
 		return 0xff;					/* Allow 'fake' 24 bits for DMA */
+
+	else if (ConfigureParams.Memory.STRamSize_KB > 4*1024)	/* ST/STE with more than 4 MB */
+		return 0x7f;					/* Allow 'fake' 23 bits for DMA */
 
 	else							/* ST/STE with <= 4 MB */
 		return 0x3f;					/* Limit DMA range to 22 bits (same as real HW) */
@@ -833,13 +875,13 @@ void	M68000_ChangeCpuFreq ( void )
  * Some CPU registers can't be read or modified directly, some additional
  * actions are required.
  */
-Uint16	M68000_GetSR ( void )
+uint16_t	M68000_GetSR ( void )
 {
 	MakeSR();
 	return regs.sr;
 }
 
-void	M68000_SetSR ( Uint16 v )
+void	M68000_SetSR ( uint16_t v )
 {
 	regs.sr = v;
 	MakeFromSR();
@@ -851,4 +893,35 @@ void	M68000_SetPC ( uaecptr v )
 	fill_prefetch();
 }
 
-
+/**
+ * Dump the contents of the MMU registers
+ */
+void M68000_MMU_Info(FILE *fp, uint32_t flags)
+{
+	if (!ConfigureParams.System.bMMU || ConfigureParams.System.nCpuLevel < 2)
+	{
+		fprintf(fp, "MMU is not enabled.\n");
+		return;
+	}
+	else if (ConfigureParams.System.nCpuLevel <= 3) /* 68020/68030 mode? */
+	{
+		fprintf(fp, "MMUSR:\t0x%04x\n", mmusr_030);
+		fprintf(fp, "SRP:\t0x%016" PRIx64 "\n", (uint64_t)srp_030);
+		fprintf(fp, "CRP:\t0x%016" PRIx64 "\n", (uint64_t)crp_030);
+		fprintf(fp, "TC:\t0x%08x\n", tc_030);
+		fprintf(fp, "TT0:\t0x%08x\n", tt0_030);
+		fprintf(fp, "TT1:\t0x%08x\n", tt1_030);
+	}
+	else	/* 68040 / 68060 mode */
+	{
+		fprintf(fp, "MMUSR:\t0x%04x\n", regs.mmusr);
+		fprintf(fp, "SRP:\t0x%08x\n", regs.srp);
+		fprintf(fp, "URP:\t0x%08x\n", regs.urp);
+		fprintf(fp, "TC:\t0x%08x\n", regs.tcr);
+		fprintf(fp, "DTT0:\t0x%08x\n", regs.dtt0);
+		fprintf(fp, "DTT1:\t0x%08x\n", regs.dtt1);
+		fprintf(fp, "ITT0:\t0x%08x\n", regs.itt0);
+		fprintf(fp, "ITT0:\t0x%08x\n", regs.itt1);
+		/* TODO: Also call mmu_dump_tables() here? */
+	}
+}

@@ -26,8 +26,7 @@
 #include "cycInt.h"
 #include "log.h"
 
-
-/* 68000 Register defines */
+/* 68000 register defines */
 enum {
   REG_D0,    /* D0.. */
   REG_D1,
@@ -132,7 +131,9 @@ enum {
 /* Bus access mode */
 #define	BUS_MODE_CPU		0			/* bus is owned by the cpu */
 #define	BUS_MODE_BLITTER	1			/* bus is owned by the blitter */
-
+#define BUS_MODE_DEBUGGER	2			/* bus is owned by debugger : special case to access RAM 0-0x7FF */
+							/* without doing a bus error when not in supervisor mode */
+							/* eg : this is used in some debug functions that do get_long/word/byte */
 
 /* [NP] Notes on IACK :
  * When an interrupt happens, it's possible a similar interrupt happens again
@@ -207,12 +208,14 @@ typedef struct {
 
 extern cpu_instruction_t CpuInstruction;
 
-extern Uint32 BusErrorAddress;
+extern uint32_t BusErrorAddress;
 extern bool bBusErrorReadWrite;
 extern int nCpuFreqShift;
 extern int WaitStateCycles;
 extern int BusMode;
 extern bool	CPU_IACK;
+extern bool	CpuRunCycleExact;
+extern bool	CpuRunFuncNoret;
 
 extern int	LastOpcodeFamily;
 extern int	LastInstrCycles;
@@ -229,7 +232,6 @@ extern const char *OpcodeName[];
 static inline void M68000_AddCycles(int cycles)
 {
 	cycles = (cycles + 3) & ~3;
-	PendingInterruptCount -= INT_CONVERT_TO_INTERNAL ( cycles , INT_CPU_CYCLE );
 	nCyclesMainCounter += cycles;
 	CyclesGlobalClockCounter += cycles;
 }
@@ -320,8 +322,6 @@ static inline void M68000_AddCyclesWithPairing(int cycles)
 		cycles = (cycles + 3) & ~3;		/* no pairing, round current instr to 4 cycles */
 	}
 
-	PendingInterruptCount -= INT_CONVERT_TO_INTERNAL ( cycles , INT_CPU_CYCLE );
-
 	nCyclesMainCounter += cycles;
 	CyclesGlobalClockCounter += cycles;
 	BusCyclePenalty = 0;
@@ -340,8 +340,6 @@ static inline void M68000_AddCyclesWithPairing(int cycles)
  */
 static inline void M68000_AddCycles_CE(int cycles)
 {
-	PendingInterruptCount -= INT_CONVERT_TO_INTERNAL ( cycles , INT_CPU_CYCLE );
-
 	nCyclesMainCounter += cycles;
 	CyclesGlobalClockCounter += cycles;
 }
@@ -357,8 +355,8 @@ extern void M68000_CheckCpuSettings(void);
 extern void M68000_PatchCpuTables(void);
 extern void M68000_MemorySnapShot_Capture(bool bSave);
 extern bool M68000_IsVerboseBusError(uint32_t pc, uint32_t addr);
-extern void M68000_BusError ( Uint32 addr , int ReadWrite , int Size , int AccessType , uae_u32 val );
-extern void M68000_Exception(Uint32 ExceptionNr , int ExceptionSource);
+extern void M68000_BusError ( uint32_t addr , int ReadWrite , int Size , int AccessType , uae_u32 val );
+extern void M68000_Exception(uint32_t ExceptionNr , int ExceptionSource);
 extern void M68000_Update_intlev ( void );
 extern void M68000_WaitState(int WaitCycles);
 extern int M68000_WaitEClock ( void );
@@ -370,8 +368,9 @@ extern void M68000_Flush_All_Caches ( uaecptr addr , int size );
 extern void M68000_SetBlitter_CE ( bool ce_mode );
 extern int DMA_MaskAddressHigh ( void );
 extern void M68000_ChangeCpuFreq ( void );
-extern Uint16 M68000_GetSR ( void );
-extern void M68000_SetSR ( Uint16 v );
+extern uint16_t M68000_GetSR ( void );
+extern void M68000_SetSR ( uint16_t v );
 extern void M68000_SetPC ( uaecptr v );
+extern void M68000_MMU_Info(FILE *fp, uint32_t flags);
 
 #endif

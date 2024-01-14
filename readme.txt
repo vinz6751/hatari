@@ -8,7 +8,7 @@ Below is the original reame from Hatari
 
                                     Hatari
 
-                             Version 2.3.1, December 2020
+                             Version 2.4.1, August 2022
 
                             http://hatari.tuxfamily.org/
 
@@ -83,10 +83,10 @@ To build and use Hatari, you first need to install its dependent libraries.
  3.1) Installing Hatari dependencies
 
 Required:
-- The SDL library v2.0 (http://www.libsdl.org)
+- The SDL library v2.0.6 or newer (http://www.libsdl.org)
 
 Optional:
-- The zlib compression library (http://www.gzip.org/zlib/)
+- The zlib compression library (https://zlib.net/)
 - The PNG image library for PNG format screenshots and to decrease
   AVI video recording file sizes (http://www.libpng.org/)
 - The GNU Readline library for Hatari debugger command line editing
@@ -94,9 +94,10 @@ Optional:
   systems with the X window system (Linux and other unixes)
 - The PortMidi library required for MIDI device support on macOS and Windows
   (http://portmedia.sourceforge.net/)
-- The portaudio library for Falcon microphone handling
 - The udev library for NatFeats SCSI driver media change detection
 - The IPF support library (http://www.softpres.org/download)
+- The Capstone library (version >= 4.0) for traditional disassembly output
+  in the debugger (https://www.capstone-engine.org/)
 
 Don't forget to also install the header files of these libraries for compiling
 Hatari (some Linux distributions use separate development packages for these
@@ -108,11 +109,11 @@ see http://www.cmake.org/ for details.
 
 On RedHat based Linux distributions, you get (most of) these with:
 	sudo dnf install gcc cmake SDL2-devel zlib-devel libpng-devel \
-	  readline-devel portaudio-devel
+	  readline-devel
 
 And on Debian/Ubuntu based ones with:
 	sudo apt install gcc cmake libsdl2-dev zlib1g-dev libpng-dev \
-	  libreadline-dev portaudio19-dev
+	  libreadline-dev
 
 
  3.2) Configuring and compiling
@@ -138,7 +139,7 @@ options of this script.
 Once you have successfully configured the build settings, you can compile
 Hatari with:
 
-	cmake --build . -j $(getconf _NPROCESSORS_ONLN)
+	cmake --build . -j$(getconf _NPROCESSORS_ONLN)
 
 If all works fine, you should get the executable "hatari" in the src/ sub-
 directory of the build tree. You can then either run the executable from
@@ -149,6 +150,19 @@ there, or install the emulator system-wide by typing:
 Note: This only works with CMake version 3.15 and later. On earlier versions,
 you have to use the install command of the generator program instead, e.g.
 "make install" if you are using the classical "make" for building Hatari.
+
+ 3.2.1) Configuring and compiling with emscripten
+
+	mkdir -p build/files
+	# Copy your tos.img to build/files/
+	cd build
+	emcmake cmake ..
+	cmake --build . -j$(getconf _NPROCESSORS_ONLN) hatari
+
+The resulting hatari.html can't be used directly, you must provide it via
+a webserver to your browser (use Chromium, it currently works better than
+Firefox). A simple way is to use "python3 -m http.server" as a minimalist
+webserver for testing it locally.
 
 
  3.3) IPF support using capsimage library
@@ -201,20 +215,6 @@ But registering handlers for mime-types seems desktop specific.
 
 
  3.4.1) Known distro problems
-
-If Hatari is built with portaudio support, *and* either portaudio or
-ALSA is configured to use pulseaudio plugin, that plugin aborts Hatari
-at Falcon emulation startup, if Pulseaudio server is not running.
-
-This is because:
-- Falcon microphone emulation initializes Portaudio, which uses ALSA
-- Many distributions enable (by default) pulseaudio plugin(s) for ALSA
-  and/or portaudio
-- Pulseaudio plugin aborts when it cannot connect to pulseaudio server
-
-Note: Normal Hatari audio output goes through SDL, which uses
-pulseaudio library directly.  That doesn't have this issue.
-
 
 Old RHEL 5 and the derived CentOS v5.x Linux distributions ship
 with a broken readline library:
@@ -283,7 +283,6 @@ Their main run-time dependencies are:
 
 * cmake/ -- extra CMake files for configuring Hatari to build environment
 * doc/ -- Hatari documentation
-* etc/ -- old Hatari versions config files for obsolete HW
 * python-ui/ -- external Python / Gtk UI for Hatari
 * share/ -- Hatari desktop integration; icons, mimetypes
 * src/ -- C-sources for Hatari emulator program
@@ -296,13 +295,26 @@ Their main run-time dependencies are:
   - gui-sdl/ -- builtin SDL GUI for Hatari
   - gui-win/ -- MS Windows console code + icon
 * tests/ -- shell/python scripts & programs for testing emulator functionality
+  - autostart/ -- tests for TOS issues with too fast Hatari startup
+  - blitter/ -- blitter emulation tests
+  - buserror/ -- IO memory range bus error tests
+  - cpu/ -- few CPU instruction emulation tests
+  - cycles/ -- few CPU cycles emulation tests
+  - debugger/ -- Hatari debugger functionality tests
+  - gemdos/ -- GEMDOS HD emulation tests
+  - mem_end/ -- emulation tests for screen at end of RAM
   - keymap/ -- programs showing keycodes to use in Hatari keymap files
-  - natfeats/ -- test and example Atari code for using Hatari features
-  - etc.
+  - natfeats/ -- tests + example Atari code for emulation Native Features
+  - screen/ -- overscan emulation tests
+  - serial/ -- serial output emulation tests
+  - tosboot/ -- TOS bootup + basic GEMDOS operation tests
+  - unit/ -- few unit tests for Hatari helper functions
+  - xbios/ -- tests for BIOS intercept features
 * tools/ -- shell/python scripts & programs useful with Hatari
   - debugger/ -- debug symbol conversion scripts & profile data tools
   - hconsole/ -- out-of-process Hatari control / automation tool
   - hmsa/ -- floppy image format conversion tool
+  - linux/ -- m68k Linux support files for running it under Hatari
 
 
  7) Contact

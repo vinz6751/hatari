@@ -1,9 +1,12 @@
 
-INSTALL(FILES authors.txt emutos.txt keymap-sample.txt memory-usage.txt
-	midi-linux.txt release-notes.txt todo.txt
+INSTALL(FILES authors.txt bugs.txt emutos.txt keymap-sample.txt
+        m68k-linux.txt memory-usage.txt midi-linux.txt
+	release-notes.txt scsi-driver.txt thanks.txt todo.txt
+	video-recording.txt
 	DESTINATION ${DOCDIR})
 
-INSTALL(FILES compatibility.html manual.html debugger.html manual.css toc.js
+INSTALL(FILES compatibility.html manual.html debugger.html
+        hatari-ui.html manual.css toc.js
 	DESTINATION ${DOCDIR})
 
 INSTALL(DIRECTORY images
@@ -26,4 +29,6 @@ if(TIDY)
 	         COMMAND tidy -q -e ${CMAKE_CURRENT_SOURCE_DIR}/compatibility.html)
 	add_test(NAME tidy-debugger
 	         COMMAND tidy -q -e ${CMAKE_CURRENT_SOURCE_DIR}/debugger.html)
+	add_test(NAME tidy-hatariui
+	         COMMAND tidy -q -e ${CMAKE_CURRENT_SOURCE_DIR}/hatari-ui.html)
 endif()

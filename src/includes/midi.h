@@ -19,7 +19,19 @@ extern void Midi_Control_WriteByte(void);
 extern void Midi_Data_WriteByte(void);
 extern void Midi_InterruptHandler_Update(void);
 
-extern const char* Midi_Host_GetPortName(int index, bool forInput);
-extern int Midi_Host_GetPortIndex(const char* portName, bool forInput);
+#ifdef HAVE_PORTMIDI
+typedef enum {
+	MIDI_FOR_INPUT,
+	MIDI_FOR_OUTPUT
+} midi_dir_t;
+
+typedef enum {
+	MIDI_NAME_PREV = -1,
+	MIDI_NAME_FIND = 0,
+	MIDI_NAME_NEXT = +1
+} midi_name_offset_t;
+
+extern const char* Midi_Host_GetPortName(const char *name, midi_name_offset_t offset, midi_dir_t dir);
+#endif
 
 #endif

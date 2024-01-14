@@ -86,7 +86,7 @@
 /*			data reg was 0 (which in fact means 256).			*/
 /* 2008/10/16	[NP]	No need to set data reg to 255 when decrementing a data reg that*/
 /*			was 0, this is already what is implicitly done, because data	*/
-/*			reg for timer A/B is Uint8 (revert 2008/10/04 changes).		*/
+/*			reg for timer A/B is uint8_t (revert 2008/10/04 changes).		*/
 /* 2008/12/11	[NP]	In MFP_CheckPendingInterrupts(), returns true or false instead	*/
 /*			of void, depending on whether at least one MFP interrupt was	*/
 /*			allowed or not.							*/
@@ -124,6 +124,17 @@
 /*			PendingCyclesOver to determine if a 4 cycle delay should be	*/
 /*			added or not (depending on when it happened during the CPU	*/
 /*			instruction).							*/
+/* 2022/01/07	[NP]	Improve accuracy when reading Timer Data reg and don't use	*/
+/*			CycInt_ResumeStoppedInterrupt() anymore (fix ST CNX screen	*/
+/*			in Punish Your Machine when saving MFP registers by doing very	*/
+/*			fast start/stop on each MFP timer)				*/
+/* 2022/01/27	[NP]	Call MFP_UpdateTimers / CycInt_Process before accessing any MFP	*/
+/*			registers, to ensure MFP timers are updated in chronological	*/
+/*			order (fix the game Super Hang On, where 'bclr #0,$fffffa0f'	*/
+/*			to clear Timer B ISR sometimes happens at the same time that	*/
+/*			Timer C expires, which used the wrong ISR value and gave	*/
+/*			flickering raster colors)					*/
+
 
 const char MFP_fileid[] = "Hatari mfp.c";
 
@@ -148,9 +159,10 @@ const char MFP_fileid[] = "Hatari mfp.c";
 #include "stMemory.h"
 #include "tos.h"
 #include "vdi.h"
-#include "screen.h"
 #include "video.h"
 #include "ncr5380.h"
+#include "clocks_timings.h"
+#include "acia.h"
 
 
 /*
@@ -354,7 +366,7 @@ bool		MFP_UpdateNeeded = false;		/* When set to true, main CPU loop should call 
 #define	MFP_IRQ_DELAY_TO_CPU		4		/* When MFP_IRQ is set, it takes 4 CPU cycles before it's visible to the CPU */
 
 
-static const Uint16 MFPDiv[] =
+static const uint16_t MFPDiv[] =
 {
 	0,
 	4,
@@ -387,17 +399,48 @@ static const int MFP_GPIP_LineToIntNumber[] = { MFP_INT_GPIP0 , MFP_INT_GPIP1 , 
 static void	MFP_Init_Pointers ( MFP_STRUCT *pAllMFP );
 static void	MFP_Reset ( MFP_STRUCT *pMFP );
 
-static Uint8	MFP_ConvertIntNumber ( MFP_STRUCT *pMFP , Sint16 Interrupt , Uint8 **pMFP_IER , Uint8 **pMFP_IPR , Uint8 **pMFP_ISR , Uint8 **pMFP_IMR );
-static void	MFP_Exception ( MFP_STRUCT *pMFP , Sint16 Interrupt );
+static uint8_t	MFP_ConvertIntNumber ( MFP_STRUCT *pMFP , int16_t Interrupt , uint8_t **pMFP_IER , uint8_t **pMFP_IPR , uint8_t **pMFP_ISR , uint8_t **pMFP_IMR );
+static void	MFP_UpdateTimers ( MFP_STRUCT *pMFP , uint64_t Clock );
+static void	MFP_Exception ( MFP_STRUCT *pMFP , int16_t Interrupt );
 static bool	MFP_ProcessIRQ ( MFP_STRUCT *pMFP );
-static void	MFP_UpdateIRQ ( MFP_STRUCT *pMFP , Uint64 Event_Time );
-static bool	MFP_InterruptRequest ( MFP_STRUCT *pMFP , int Int , Uint8 Bit , Uint8 IPRx , Uint8 IMRx , Uint8 PriorityMaskA , Uint8 PriorityMaskB );
+static void	MFP_UpdateIRQ ( MFP_STRUCT *pMFP , uint64_t Event_Time );
+static bool	MFP_InterruptRequest ( MFP_STRUCT *pMFP , int Int , uint8_t Bit , uint8_t IPRx , uint8_t IMRx , uint8_t PriorityMaskA , uint8_t PriorityMaskB );
 static int	MFP_CheckPendingInterrupts ( MFP_STRUCT *pMFP );
-static void	MFP_GPIP_Update_Interrupt ( MFP_STRUCT *pMFP , Uint8 GPIP_old , Uint8 GPIP_new , Uint8 AER_old , Uint8 AER_new , Uint8 DDR_old , Uint8 DDR_new );
+static void	MFP_GPIP_Update_Interrupt ( MFP_STRUCT *pMFP , uint8_t GPIP_old , uint8_t GPIP_new , uint8_t AER_old , uint8_t AER_new , uint8_t DDR_old , uint8_t DDR_new );
 
+static uint8_t	MFP_Main_Compute_GPIP7 ( void );
+static uint8_t	MFP_Main_Compute_GPIP_LINE_ACIA ( void );
 static void	MFP_GPIP_ReadByte_Main ( MFP_STRUCT *pMFP );
 static void	MFP_GPIP_ReadByte_TT ( MFP_STRUCT *pMFP );
 
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Convert a number of CPU cycles running at CPU_Freq_Emul to a number of
+ * MFP timer cycles running at MFP_Timer_Freq (XTAL)
+ */
+int	MFP_ConvertCycle_CPU_MFP_TIMER ( int CPU_Cycles )
+{
+	int	MFP_Cycles;
+
+	MFP_Cycles = (int)( ( (uint64_t)CPU_Cycles * MachineClocks.MFP_Timer_Freq ) / MachineClocks.CPU_Freq_Emul );
+	return MFP_Cycles;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Convert a number of MFP timer cycles running at MFP_Timer_Freq (XTAL)
+ * to a number of CPU cycles running at CPU_Freq_Emul
+ */
+int	MFP_ConvertCycle_MFP_TIMER_CPU ( int MFP_Cycles )
+{
+	int	CPU_Cycles;
+
+	CPU_Cycles = (int)( ( (uint64_t)MFP_Cycles * MachineClocks.CPU_Freq_Emul ) / MachineClocks.MFP_Timer_Freq );
+	return CPU_Cycles;
+}
 
 
 /*-----------------------------------------------------------------------*/
@@ -494,12 +537,8 @@ static void	MFP_Reset ( MFP_STRUCT *pMFP )
 	pMFP->TC_MAINCOUNTER = 0;
 	pMFP->TD_MAINCOUNTER = 0;
 
-	pMFP->TimerACanResume = false;
-	pMFP->TimerBCanResume = false;
-	pMFP->TimerCCanResume = false;
-	pMFP->TimerDCanResume = false;
-
 	/* Clear counters */
+	// TODO drop those 4 variables, as they are not really used in MFP_ReadTimer_xx
 	pMFP->TimerAClockCycles = 0;
 	pMFP->TimerBClockCycles = 0;
 	pMFP->TimerCClockCycles = 0;
@@ -519,7 +558,6 @@ static void	MFP_Reset ( MFP_STRUCT *pMFP )
 	pMFP->Pending_Time_Min = UINT64_MAX;
 	for ( i=0 ; i<=MFP_INT_MAX ; i++ )
 		pMFP->Pending_Time[ i ] = UINT64_MAX;
-
 }
 
 
@@ -565,11 +603,6 @@ void	MFP_MemorySnapShot_Capture ( bool bSave )
 		MemorySnapShot_Store(&(pMFP->TC_MAINCOUNTER), sizeof(pMFP->TC_MAINCOUNTER));
 		MemorySnapShot_Store(&(pMFP->TD_MAINCOUNTER), sizeof(pMFP->TD_MAINCOUNTER));
 
-		MemorySnapShot_Store(&(pMFP->TimerACanResume), sizeof(pMFP->TimerACanResume));
-		MemorySnapShot_Store(&(pMFP->TimerBCanResume), sizeof(pMFP->TimerBCanResume));
-		MemorySnapShot_Store(&(pMFP->TimerCCanResume), sizeof(pMFP->TimerCCanResume));
-		MemorySnapShot_Store(&(pMFP->TimerDCanResume), sizeof(pMFP->TimerDCanResume));
-
 		MemorySnapShot_Store(&(pMFP->TimerAClockCycles), sizeof(pMFP->TimerAClockCycles));
 		MemorySnapShot_Store(&(pMFP->TimerBClockCycles), sizeof(pMFP->TimerBClockCycles));
 		MemorySnapShot_Store(&(pMFP->TimerCClockCycles), sizeof(pMFP->TimerCClockCycles));
@@ -600,9 +633,9 @@ void	MFP_MemorySnapShot_Capture ( bool bSave )
  * to set/clear these registers.
  * If an input pointer is NULL, we don't return the corresponding register.
  */
-static Uint8	MFP_ConvertIntNumber ( MFP_STRUCT *pMFP , Sint16 Interrupt , Uint8 **pMFP_IER , Uint8 **pMFP_IPR , Uint8 **pMFP_ISR , Uint8 **pMFP_IMR )
+static uint8_t	MFP_ConvertIntNumber ( MFP_STRUCT *pMFP , int16_t Interrupt , uint8_t **pMFP_IER , uint8_t **pMFP_IPR , uint8_t **pMFP_ISR , uint8_t **pMFP_IMR )
 {
-	Uint8	Bit;
+	uint8_t	Bit;
 
 	if ( Interrupt > 7 )
 	{
@@ -625,6 +658,33 @@ static Uint8	MFP_ConvertIntNumber ( MFP_STRUCT *pMFP , Sint16 Interrupt , Uint8 
 }
 
 
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Update the internal CycInt counters to check if some MFP timers expired.
+ * This should be called before accessing the MFP registers for read or write
+ * to ensure MFP events are processed in chronological order.
+ * This should only be called when CPU runs in Cycle Exact mode, because
+ * we need accurate cycles counting when calling CycInt functions during
+ * the processing of an instruction.
+ */
+static void	MFP_UpdateTimers ( MFP_STRUCT *pMFP , uint64_t Clock )
+{
+//fprintf ( stderr , "mfp update timers clock=%"PRIu64"\n" , Clock );
+	if ( !CpuRunCycleExact )
+		return;
+
+CycInt_From_Opcode = true;			/* TEMP for CYCLES_COUNTER_VIDEO, see cycInt.c */
+	CycInt_Process_Clock ( Clock );
+	if ( MFP_UpdateNeeded == true )
+		MFP_UpdateIRQ ( pMFP , Clock );
+CycInt_From_Opcode = false;			/* TEMP for CYCLES_COUNTER_VIDEO, see cycInt.c */
+}
+
+
+
+
 /*-----------------------------------------------------------------------*/
 /**
  * Call the MFP exception associated to the current MFP interrupt 0-15.
@@ -634,7 +694,7 @@ static Uint8	MFP_ConvertIntNumber ( MFP_STRUCT *pMFP , Sint16 Interrupt , Uint8 
  * The upper 4 bits of the vector number are stored in the VR register 0xfffa17
  * (default value is 0x40, which gives exceptions' handlers located at 0x100 in RAM)
  */
-static void	MFP_Exception ( MFP_STRUCT *pMFP , Sint16 Interrupt )
+static void	MFP_Exception ( MFP_STRUCT *pMFP , int16_t Interrupt )
 {
 	unsigned int VecNr;
 
@@ -664,8 +724,9 @@ static void	MFP_Exception ( MFP_STRUCT *pMFP , Sint16 Interrupt )
  *
  * When the machine is a TT, we combine the IRQ from the 2 MFPs
  */
-Uint8	MFP_GetIRQ_CPU ( void )
+uint8_t	MFP_GetIRQ_CPU ( void )
 {
+//fprintf ( stderr , "mfp get irq %d\n" , pMFP_Main->IRQ_CPU );
 	if ( !Config_IsMachineTT() )			/* Only 1 MFP */
  		return pMFP_Main->IRQ_CPU;
 	else						/* 2nd MFP is only in TT machine */
@@ -742,9 +803,9 @@ void	MFP_DelayIRQ ( void )
 int	MFP_ProcessIACK ( int OldVecNr )
 {
 	MFP_STRUCT	*pMFP;
-	Uint8		*pPendingReg;
-	Uint8		*pInServiceReg;
-	Uint8		Bit;
+	uint8_t		*pPendingReg;
+	uint8_t		*pInServiceReg;
+	uint8_t		Bit;
 	int		NewVecNr;
 
 	/* If IRQ is set on TT MFP then we process IACK for TT MFP */
@@ -822,7 +883,7 @@ bool	MFP_ProcessIRQ_All ( void )
 
 static bool	MFP_ProcessIRQ ( MFP_STRUCT *pMFP )
 {
-//fprintf ( stderr , "process irq %d %lud %lud - ipr %x %x imr %x %x isr %x %x\n" , pMFP->IRQ , CyclesGlobalClockCounter , pMFP->IRQ_Time ,  pMFP->IPRA , pMFP->IPRB , pMFP->IMRA , pMFP->IMRB , pMFP->ISRA , pMFP->ISRB );
+//fprintf ( stderr , "process irq=%d clock=%"PRIu64" irq_time=%"PRIu64" - ipr %x %x imr %x %x isr %x %x\n" , pMFP->IRQ , CyclesGlobalClockCounter , pMFP->IRQ_Time ,  pMFP->IPRA , pMFP->IPRB , pMFP->IMRA , pMFP->IMRB , pMFP->ISRA , pMFP->ISRB );
 
 	if ( pMFP->IRQ == 1 )
 	{
@@ -847,7 +908,7 @@ static bool	MFP_ProcessIRQ ( MFP_STRUCT *pMFP )
 /**
  * Update the MFP IRQ signal for all the MFP
  */
-void	MFP_UpdateIRQ_All ( Uint64 Event_Time )
+void	MFP_UpdateIRQ_All ( uint64_t Event_Time )
 {
 	/* 2nd MFP is only in TT machine */
 	if ( Config_IsMachineTT() )
@@ -873,11 +934,11 @@ void	MFP_UpdateIRQ_All ( Uint64 Event_Time )
  * internal timers, Event_Time will be 0 and we must use MFP_Pending_Time[ NewInt ].
  * This way, MFP_IRQ_Time should always be correct to check the delay in MFP_ProcessIRQ().
  */
-static void	MFP_UpdateIRQ ( MFP_STRUCT *pMFP , Uint64 Event_Time )
+static void	MFP_UpdateIRQ ( MFP_STRUCT *pMFP , uint64_t Event_Time )
 {
-	int	NewInt;
+	int	NewInt = -1;
 
-//fprintf ( stderr , "updirq0 %d - ipr %x %x imr %x %x isr %x %x\n" , pMFP->IRQ , pMFP->IPRA , pMFP->IPRB , pMFP->IMRA , pMFP->IMRB , pMFP->ISRA , pMFP->ISRB );
+//fprintf ( stderr , "updirq in irq=%d event_time=%"PRIu64" - ipr %x %x imr %x %x isr %x %x - clock=%"PRIu64"\n" , pMFP->IRQ , Event_Time , pMFP->IPRA , pMFP->IPRB , pMFP->IMRA , pMFP->IMRB , pMFP->ISRA , pMFP->ISRB , CyclesGlobalClockCounter  );
 
 	if ( ( pMFP->IPRA & pMFP->IMRA ) | ( pMFP->IPRB & pMFP->IMRB ) )
 	{
@@ -904,7 +965,7 @@ static void	MFP_UpdateIRQ ( MFP_STRUCT *pMFP , Uint64 Event_Time )
 		pMFP->IRQ = 0;
 	}
 
-//fprintf ( stderr , "updirq1 %d %lud - ipr %x %x imr %x %x isr %x %x\n" , pMFP->IRQ , pMFP->IRQ_Time , pMFP->IPRA , pMFP->IPRB , pMFP->IMRA , pMFP->IMRB , pMFP->ISRA , pMFP->ISRB );
+//fprintf ( stderr , "updirq out irq=%d irq_time=%"PRIu64" newint=%d - ipr %x %x imr %x %x isr %x %x - clock=%"PRIu64"\n" , pMFP->IRQ , pMFP->IRQ_Time , NewInt , pMFP->IPRA , pMFP->IPRB , pMFP->IMRA , pMFP->IMRB , pMFP->ISRA , pMFP->ISRB , CyclesGlobalClockCounter );
 	M68000_SetSpecial ( SPCFLAG_MFP );			/* CPU part should call MFP_Delay_IRQ() */
 
 	/* Update IRQ is done, reset Time_Min and UpdateNeeded */
@@ -920,7 +981,7 @@ static void	MFP_UpdateIRQ ( MFP_STRUCT *pMFP , Uint64 Event_Time )
  * Depending on the interrupt, we check either IPRA/IMRA or IPRB/IMRB
  * @return true if the MFP interrupt request is allowed
  */
-static bool	MFP_InterruptRequest ( MFP_STRUCT *pMFP , int Int , Uint8 Bit , Uint8 IPRx , Uint8 IMRx , Uint8 PriorityMaskA , Uint8 PriorityMaskB )
+static bool	MFP_InterruptRequest ( MFP_STRUCT *pMFP , int Int , uint8_t Bit , uint8_t IPRx , uint8_t IMRx , uint8_t PriorityMaskA , uint8_t PriorityMaskB )
 {
 //fprintf ( stderr , "mfp int req %d %x %x %X %x %x %x %x\n" , Int , Bit , IPRx , IMRx , PriorityMaskA , PriorityMaskB , pMFP->ISRA , pMFP->ISRB );
 
@@ -1017,12 +1078,12 @@ static int	MFP_CheckPendingInterrupts ( MFP_STRUCT *pMFP )
  */
 void	MFP_InputOnChannel ( MFP_STRUCT *pMFP , int Interrupt , int Interrupt_Delayed_Cycles )
 {
-	Uint8	*pEnableReg;
-	Uint8	*pPendingReg;
-	Uint8	*pMaskReg;
-	Uint8	Bit;
+	uint8_t	*pEnableReg;
+	uint8_t	*pPendingReg;
+	uint8_t	*pMaskReg;
+	uint8_t	Bit;
 
-//fprintf ( stderr , "mfp input %d delay %d clock %lud\n" , Interrupt , Interrupt_Delayed_Cycles , CyclesGlobalClockCounter );
+//fprintf ( stderr , "mfp input %d delay %d clock %"PRIu64"\n" , Interrupt , Interrupt_Delayed_Cycles , CyclesGlobalClockCounter );
 	Bit = MFP_ConvertIntNumber ( pMFP , Interrupt , &pEnableReg , &pPendingReg , NULL , &pMaskReg );
 
 	/* Input has occurred on MFP channel, set interrupt pending to request service when able */
@@ -1069,12 +1130,12 @@ void	MFP_InputOnChannel ( MFP_STRUCT *pMFP , int Interrupt , int Interrupt_Delay
  * if AER is changed ! ('M' and 'Realtime' are doing bset #0,$fffa03
  * then bclr #0,$fffa03)
  */
-static void	MFP_GPIP_Update_Interrupt ( MFP_STRUCT *pMFP , Uint8 GPIP_old , Uint8 GPIP_new , Uint8 AER_old , Uint8 AER_new , Uint8 DDR_old , Uint8 DDR_new )
+static void	MFP_GPIP_Update_Interrupt ( MFP_STRUCT *pMFP , uint8_t GPIP_old , uint8_t GPIP_new , uint8_t AER_old , uint8_t AER_new , uint8_t DDR_old , uint8_t DDR_new )
 {
-	Uint8	State_old;
-	Uint8	State_new;
+	uint8_t	State_old;
+	uint8_t	State_new;
 	int	Bit;
-	Uint8	BitMask;
+	uint8_t	BitMask;
 
 //fprintf ( stderr , "gpip upd gpip_old=%x gpip_new=%x aer_old=%x aer_new=%x ddr_old=%x ddr_new=%x\n" , GPIP_old, GPIP_new, AER_old, AER_new, DDR_old, DDR_new );
 	State_old = GPIP_old ^ AER_old;
@@ -1107,14 +1168,24 @@ static void	MFP_GPIP_Update_Interrupt ( MFP_STRUCT *pMFP , Uint8 GPIP_old , Uint
  * If the new state is different from the previous one, we update GPIP and
  * we request an interrupt on the corresponding channel.
  */
-void	MFP_GPIP_Set_Line_Input ( MFP_STRUCT *pMFP , Uint8 LineNr , Uint8 Bit )
+void	MFP_GPIP_Set_Line_Input ( MFP_STRUCT *pMFP , uint8_t LineNr , uint8_t Bit )
 {
-	Uint8	Mask;
-	Uint8	GPIP_old;
+	uint8_t	Mask;
+	uint8_t	GPIP_old;
 
 	Mask = 1 << LineNr;
 
 //fprintf ( stderr , "gpip set0 mask=%x bit=%d ddr=%x gpip=%x\n", Mask, Bit, pMFP->DDR, pMFP->GPIP );
+
+	/* Special case when changing bit 7 of the main MFP : depending on the machine type, */
+	/* this can be a combination of several signals. So we override Bit with its new value */
+	if ( ( pMFP == pMFP_Main ) && ( LineNr == MFP_GPIP_LINE7 ) )
+		Bit = MFP_Main_Compute_GPIP7 ();
+
+	/* Special case when changing bit 4 of the main MFP : this line is connected */
+	/* to the 2 ACIA's IRQ lines at the same time */
+	if ( ( pMFP == pMFP_Main ) && ( LineNr == MFP_GPIP_LINE_ACIA ) )
+		Bit = MFP_Main_Compute_GPIP_LINE_ACIA ();
 
 	/* Check that corresponding line is defined as input in DDR (0=input 1=output) */
 	/* and that the bit is changing */
@@ -1130,8 +1201,6 @@ void	MFP_GPIP_Set_Line_Input ( MFP_STRUCT *pMFP , Uint8 LineNr , Uint8 Bit )
 		else
 		{
 			pMFP->GPIP &= ~Mask;
-			/* TODO : For now, assume AER=0 and do an interrupt on 1->0 transition */
-//			MFP_InputOnChannel ( MFP_GPIP_LineToIntNumber[ LineNr ] , 0 );
 		}
 
 		/* Update possible interrupts after changing GPIP */
@@ -1141,16 +1210,15 @@ void	MFP_GPIP_Set_Line_Input ( MFP_STRUCT *pMFP , Uint8 LineNr , Uint8 Bit )
 }
 
 
-
 /*-----------------------------------------------------------------------*/
 /**
  * Change input line for Timer A (TAI) and generate an interrupt when in event count mode
  * and counter reaches 1.
  * TAI is associated to AER GPIP4
  */
-void	MFP_TimerA_Set_Line_Input ( MFP_STRUCT *pMFP , Uint8 Bit )
+void	MFP_TimerA_Set_Line_Input ( MFP_STRUCT *pMFP , uint8_t Bit )
 {
-	Uint8	AER_bit;
+	uint8_t	AER_bit;
 
 	if ( pMFP->TAI == Bit )
 		return;					/* No change */
@@ -1173,7 +1241,7 @@ void	MFP_TimerA_Set_Line_Input ( MFP_STRUCT *pMFP , Uint8 Bit )
 	else
 	{
 		pMFP->TA_MAINCOUNTER--;			/* Decrement timer main counter */
-		/* As TA_MAINCOUNTER is Uint8, when we decrement TA_MAINCOUNTER=0 */
+		/* As TA_MAINCOUNTER is uint8_t, when we decrement TA_MAINCOUNTER=0 */
 		/* we go to TA_MAINCOUNTER=255, which is the wanted behaviour because */
 		/* data reg = 0 means 256 in fact. So, the next 2 lines are redundant. */
 /*		if ( TA_MAINCOUNTER < 0 )
@@ -1203,7 +1271,7 @@ void	MFP_TimerA_EventCount( MFP_STRUCT *pMFP )
 	else
 	{
 		pMFP->TA_MAINCOUNTER--;			/* Decrement timer main counter */
-		/* As TA_MAINCOUNTER is Uint8, when we decrement TA_MAINCOUNTER=0 */
+		/* As TA_MAINCOUNTER is uint8_t, when we decrement TA_MAINCOUNTER=0 */
 		/* we go to TA_MAINCOUNTER=255, which is the wanted behaviour because */
 		/* data reg = 0 means 256 in fact. So, the next 2 lines are redundant. */
 /*		if ( TA_MAINCOUNTER < 0 )
@@ -1234,7 +1302,7 @@ void	MFP_TimerB_EventCount ( MFP_STRUCT *pMFP , int Delayed_Cycles )
 	else
 	{
 		pMFP->TB_MAINCOUNTER--;			/* Decrement timer main counter */
-		/* As TB_MAINCOUNTER is Uint8, when we decrement TB_MAINCOUNTER=0 */
+		/* As TB_MAINCOUNTER is uint8_t, when we decrement TB_MAINCOUNTER=0 */
 		/* we go to TB_MAINCOUNTER=255, which is the wanted behaviour because */
 		/* data reg = 0 means 256 in fact. So, the next 2 lines are redundant. */
 /*		if ( TB_MAINCOUNTER < 0 )
@@ -1248,10 +1316,10 @@ void	MFP_TimerB_EventCount ( MFP_STRUCT *pMFP , int Delayed_Cycles )
 /**
  * Start Timer A or B - EventCount mode is done in HBL handler to time correctly
  */
-static Uint32 MFP_StartTimer_AB ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16 TimerData, interrupt_id Handler,
-                             bool bFirstTimer, bool *pTimerCanResume)
+static uint32_t MFP_StartTimer_AB ( MFP_STRUCT *pMFP , uint8_t TimerControl, uint16_t TimerData, interrupt_id Handler,
+                             bool bFirstTimer)
 {
-	Uint32 TimerClockCycles = 0;
+	uint32_t TimerClockCycles = 0;
 
 
 	/* When in pulse width mode, handle as in delay mode */
@@ -1295,10 +1363,10 @@ static Uint32 MFP_StartTimer_AB ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16 
 		{
 			int FrameCycles, HblCounterVideo, LineCycles;
 			Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
-			LOG_TRACE_PRINT("mfp%s start AB handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s resume=%s\n",
+			LOG_TRACE_PRINT("mfp%s start AB handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s\n",
 			                pMFP->NameSuffix , Handler, TimerData, TimerControl, TimerClockCycles, PendingCyclesOver,
 			                FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles,
-			                bFirstTimer?"true":"false", *pTimerCanResume?"true":"false");
+			                bFirstTimer?"true":"false");
 		}
 
 		/* And add to our internal interrupt list, if timer cycles is zero
@@ -1306,29 +1374,20 @@ static Uint32 MFP_StartTimer_AB ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16 
 		CycInt_RemovePendingInterrupt(Handler);
 		if (TimerClockCycles)
 		{
-			if ((*pTimerCanResume == true) && (bFirstTimer == true))	/* we can't resume if the timer is auto restarting after an interrupt */
+			/* Start timer from now? If not continue timer using PendingCycleOver */
+			if (bFirstTimer)
 			{
-				CycInt_ResumeStoppedInterrupt ( Handler );
+				CycInt_AddRelativeInterrupt(TimerClockCycles, INT_MFP_CYCLE, Handler);
 			}
 			else
 			{
-				int	AddCurCycles = INT_CONVERT_TO_INTERNAL ( Cycles_GetInternalCycleOnWriteAccess() , INT_CPU_CYCLE );
+				int64_t	TimerClockCyclesInternal = INT_CONVERT_TO_INTERNAL ( (int64_t)TimerClockCycles , INT_MFP_CYCLE );
 
-				/* Start timer from now? If not continue timer using PendingCycleOver */
-				if (bFirstTimer)
-					CycInt_AddRelativeInterruptWithOffset(TimerClockCycles, INT_MFP_CYCLE, Handler, AddCurCycles);
-				else
-				{
-					Sint64	TimerClockCyclesInternal = INT_CONVERT_TO_INTERNAL ( (Sint64)TimerClockCycles , INT_MFP_CYCLE );
+				/* In case we miss more than one int, we must correct the delay for the next one */
+				if ( (int64_t)PendingCyclesOver > TimerClockCyclesInternal )
+					PendingCyclesOver = PendingCyclesOver % TimerClockCyclesInternal;
 
-					/* In case we miss more than one int, we must correct the delay for the next one */
-					if ( (Sint64)PendingCyclesOver > TimerClockCyclesInternal )
-						PendingCyclesOver = PendingCyclesOver % TimerClockCyclesInternal;
-
-					CycInt_AddRelativeInterruptWithOffset(TimerClockCycles, INT_MFP_CYCLE, Handler, -PendingCyclesOver);
-				}
-
-				*pTimerCanResume = true;		/* timer was set, resume is possible if stop/start it later */
+				CycInt_AddRelativeInterruptWithOffset(TimerClockCycles, INT_MFP_CYCLE, Handler, -PendingCyclesOver);
 			}
 		}
 
@@ -1339,10 +1398,10 @@ static Uint32 MFP_StartTimer_AB ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16 
 			{
 				int FrameCycles, HblCounterVideo, LineCycles;
 				Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
-				LOG_TRACE_PRINT("mfp%s stop AB handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s resume=%s\n",
+				LOG_TRACE_PRINT("mfp%s stop AB handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s\n",
 				                pMFP->NameSuffix , Handler, TimerData, TimerControl, TimerClockCycles, PendingCyclesOver,
 				                FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles,
-				                bFirstTimer?"true":"false", *pTimerCanResume?"true":"false");
+				                bFirstTimer?"true":"false");
 			}
 		}
 	}
@@ -1364,10 +1423,10 @@ static Uint32 MFP_StartTimer_AB ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16 
 		{
 			int FrameCycles, HblCounterVideo, LineCycles;
 			Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
-			LOG_TRACE_PRINT("mfp%s start AB handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s resume=%s\n",
+			LOG_TRACE_PRINT("mfp%s start AB handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s\n",
 			                pMFP->NameSuffix , Handler, TimerData, TimerControl, TimerClockCycles, PendingCyclesOver,
 			                FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles,
-			                bFirstTimer?"true":"false", *pTimerCanResume?"true":"false");
+			                bFirstTimer?"true":"false");
 		}
 	}
 
@@ -1379,10 +1438,10 @@ static Uint32 MFP_StartTimer_AB ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16 
 /**
  * Start Timer C or D
  */
-static Uint32 MFP_StartTimer_CD (  MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16 TimerData, interrupt_id Handler,
-                             bool bFirstTimer, bool *pTimerCanResume)
+static uint32_t MFP_StartTimer_CD (  MFP_STRUCT *pMFP , uint8_t TimerControl, uint16_t TimerData, interrupt_id Handler,
+                             bool bFirstTimer)
 {
-	Uint32 TimerClockCycles = 0;
+	uint32_t TimerClockCycles = 0;
 
 	/* Is timer in delay mode ? */
 	if ((TimerControl&0x7) != 0)
@@ -1398,10 +1457,10 @@ static Uint32 MFP_StartTimer_CD (  MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16
 		{
 			int FrameCycles, HblCounterVideo, LineCycles;
 			Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
-			LOG_TRACE_PRINT("mfp%s start CD handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s resume=%s\n" ,
+			LOG_TRACE_PRINT("mfp%s start CD handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s\n" ,
 			                     pMFP->NameSuffix , Handler, TimerData, TimerControl, TimerClockCycles, PendingCyclesOver,
 			                     FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles,
-			                     bFirstTimer?"true":"false" , *pTimerCanResume?"true":"false" );
+			                     bFirstTimer?"true":"false" );
 		}
 
 		/* And add to our internal interrupt list, if timer cycles is zero
@@ -1409,29 +1468,19 @@ static Uint32 MFP_StartTimer_CD (  MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16
 		CycInt_RemovePendingInterrupt(Handler);
 		if (TimerClockCycles)
 		{
-			if ((*pTimerCanResume == true) && (bFirstTimer == true))	/* we can't resume if the timer is auto restarting after an interrupt */
+			/* Start timer from now? If not continue timer using PendingCycleOver */
+			if (bFirstTimer)
 			{
-				CycInt_ResumeStoppedInterrupt ( Handler );
+				CycInt_AddRelativeInterrupt(TimerClockCycles, INT_MFP_CYCLE, Handler);
 			}
 			else
 			{
-				int	AddCurCycles = INT_CONVERT_TO_INTERNAL ( Cycles_GetInternalCycleOnWriteAccess() , INT_CPU_CYCLE );
+				int64_t	TimerClockCyclesInternal = INT_CONVERT_TO_INTERNAL ( (int64_t)TimerClockCycles , INT_MFP_CYCLE );
+				/* In case we miss more than one int, we must correct the delay for the next one */
+				if ( (int64_t)PendingCyclesOver > TimerClockCyclesInternal )
+					PendingCyclesOver = PendingCyclesOver % TimerClockCyclesInternal;
 
-				/* Start timer from now? If not continue timer using PendingCycleOver */
-				if (bFirstTimer)
-					CycInt_AddRelativeInterruptWithOffset(TimerClockCycles, INT_MFP_CYCLE, Handler, AddCurCycles);
-				else
-				{
-					Sint64	TimerClockCyclesInternal = INT_CONVERT_TO_INTERNAL ( (Sint64)TimerClockCycles , INT_MFP_CYCLE );
-
-					/* In case we miss more than one int, we must correct the delay for the next one */
-					if ( (Sint64)PendingCyclesOver > TimerClockCyclesInternal )
-						PendingCyclesOver = PendingCyclesOver % TimerClockCyclesInternal;
-
-					CycInt_AddRelativeInterruptWithOffset(TimerClockCycles, INT_MFP_CYCLE, Handler, -PendingCyclesOver);
-				}
-
-				*pTimerCanResume = true;		/* timer was set, resume is possible if stop/start it later */
+				CycInt_AddRelativeInterruptWithOffset(TimerClockCycles, INT_MFP_CYCLE, Handler, -PendingCyclesOver);
 			}
 		}
 	}
@@ -1442,10 +1491,10 @@ static Uint32 MFP_StartTimer_CD (  MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16
 		{
 			int FrameCycles, HblCounterVideo, LineCycles;
 			Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
-			LOG_TRACE_PRINT("mfp%s stop CD handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s resume=%s\n" ,
+			LOG_TRACE_PRINT("mfp%s stop CD handler=%d data=%d ctrl=%d timer_cyc=%d pending_cyc=%d video_cyc=%d %d@%d pc=%x instr_cyc=%d first=%s\n" ,
 			                     pMFP->NameSuffix , Handler, TimerData, TimerControl, TimerClockCycles, PendingCyclesOver,
 			                     FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles,
-			                     bFirstTimer?"true":"false" , *pTimerCanResume?"true":"false" );
+			                     bFirstTimer?"true":"false" );
 		}
 
 		/* Make sure no outstanding interrupts in list if channel is disabled */
@@ -1460,18 +1509,15 @@ static Uint32 MFP_StartTimer_CD (  MFP_STRUCT *pMFP , Uint8 TimerControl, Uint16
 /**
  * Read Timer A or B - If in EventCount MainCounter already has correct value
  */
-static Uint8	MFP_ReadTimer_AB ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint8 MainCounter, Uint32 TimerCycles, interrupt_id Handler, bool TimerIsStopping)
+static uint8_t	MFP_ReadTimer_AB ( MFP_STRUCT *pMFP , uint8_t TimerControl, uint8_t MainCounter, uint32_t TimerCycles, interrupt_id Handler, bool TimerIsStopping)
 {
-//	int TimerCyclesPassed;
-
 	/* Find TimerAB count, if no interrupt or not in delay mode assume
 	 * in Event Count mode so already up-to-date as kept by HBL */
 	if (CycInt_InterruptActive(Handler) && (TimerControl > 0) && (TimerControl <= 7))
 	{
 		/* Find cycles passed since last interrupt */
-		//TimerCyclesPassed = TimerCycles - CycInt_FindCyclesPassed ( Handler, INT_MFP_CYCLE );
-		MainCounter = MFP_CYCLE_TO_REG ( CycInt_FindCyclesPassed ( Handler, INT_MFP_CYCLE ), TimerControl );
-		//fprintf ( stderr , "mfp read AB count %d\n" , MainCounter );
+		MainCounter = MFP_CYCLE_TO_REG ( CycInt_FindCyclesRemaining ( Handler, INT_MFP_CYCLE ), TimerControl );
+//fprintf ( stderr , "mfp read AB count %d int_cyc=%d\n" , MainCounter , CycInt_FindCyclesRemaining ( Handler, INT_MFP_CYCLE ) );
 	}
 
 	/* If the timer is stopped when the internal mfp data reg is already < 1 */
@@ -1479,7 +1525,7 @@ static Uint8	MFP_ReadTimer_AB ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint8 Mai
 	/* if no write is made to the data reg before */
 	if ( TimerIsStopping )
 	{
-		if ( CycInt_FindCyclesPassed ( Handler, INT_MFP_CYCLE ) < MFP_REG_TO_CYCLES ( 1 , TimerControl ) )
+		if ( CycInt_FindCyclesRemaining ( Handler, INT_MFP_CYCLE ) < MFP_REG_TO_CYCLES ( 1 , TimerControl ) )
 		{
 			MainCounter = 0;			/* internal mfp counter becomes 0 (=256) */
 			LOG_TRACE(TRACE_MFP_READ , "mfp%s read AB handler=%d stopping timer while data reg between 1 and 0 : forcing data to 256\n" ,
@@ -1504,18 +1550,14 @@ static Uint8	MFP_ReadTimer_AB ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint8 Mai
 /**
  * Read Timer C or D
  */
-static Uint8	MFP_ReadTimer_CD ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint8 TimerData, Uint8 MainCounter, Uint32 TimerCycles, interrupt_id Handler, bool TimerIsStopping)
+static uint8_t	MFP_ReadTimer_CD ( MFP_STRUCT *pMFP , uint8_t TimerControl, uint8_t TimerData, uint8_t MainCounter, uint32_t TimerCycles, interrupt_id Handler, bool TimerIsStopping)
 {
-//	int TimerCyclesPassed;
-
-	/* Find TimerCD count. If timer is off, MainCounter already contains
-	 * the latest value */
+	/* Find TimerCD count. If timer is off, MainCounter already contains the latest value */
 	if (CycInt_InterruptActive(Handler))
 	{
 		/* Find cycles passed since last interrupt */
-		//TimerCyclesPassed = TimerCycles - CycInt_FindCyclesPassed ( Handler, INT_MFP_CYCLE );
-		MainCounter = MFP_CYCLE_TO_REG ( CycInt_FindCyclesPassed ( Handler, INT_MFP_CYCLE ), TimerControl);
-		//fprintf ( stderr , "mfp read CD count %d\n" , MainCounter );
+		MainCounter = MFP_CYCLE_TO_REG ( CycInt_FindCyclesRemaining ( Handler, INT_MFP_CYCLE ), TimerControl );
+//fprintf ( stderr , "mfp read CD count %d int_cyc=%d\n" , MainCounter , CycInt_FindCyclesRemaining ( Handler, INT_MFP_CYCLE ) );
 	}
 
 	/* If the timer is stopped when the internal mfp data reg is already < 1 */
@@ -1523,7 +1565,7 @@ static Uint8	MFP_ReadTimer_CD ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint8 Tim
 	/* if no write is made to the data reg before */
 	if ( TimerIsStopping )
 	{
-		if ( CycInt_FindCyclesPassed ( Handler, INT_MFP_CYCLE ) < MFP_REG_TO_CYCLES ( 1 , TimerControl ) )
+		if ( CycInt_FindCyclesRemaining ( Handler, INT_MFP_CYCLE ) < MFP_REG_TO_CYCLES ( 1 , TimerControl ) )
 		{
 			MainCounter = 0;			/* internal mfp counter becomes 0 (=256) */
 			LOG_TRACE(TRACE_MFP_READ , "mfp%s read CD handler=%d stopping timer while data reg between 1 and 0 : forcing data to 256\n" ,
@@ -1551,7 +1593,7 @@ static Uint8	MFP_ReadTimer_CD ( MFP_STRUCT *pMFP , Uint8 TimerControl, Uint8 Tim
 static void	MFP_StartTimerA ( MFP_STRUCT *pMFP )
 {
 	pMFP->TimerAClockCycles = MFP_StartTimer_AB ( pMFP , pMFP->TACR , pMFP->TA_MAINCOUNTER ,
-		pMFP == pMFP_Main ? INTERRUPT_MFP_MAIN_TIMERA : INTERRUPT_MFP_TT_TIMERA , true , &(pMFP->TimerACanResume) );
+		pMFP == pMFP_Main ? INTERRUPT_MFP_MAIN_TIMERA : INTERRUPT_MFP_TT_TIMERA , true );
 }
 
 
@@ -1575,7 +1617,7 @@ static void	MFP_ReadTimerA ( MFP_STRUCT *pMFP , bool TimerIsStopping)
 static void	MFP_StartTimerB ( MFP_STRUCT *pMFP )
 {
 	pMFP->TimerBClockCycles = MFP_StartTimer_AB ( pMFP , pMFP->TBCR , pMFP->TB_MAINCOUNTER ,
-		pMFP == pMFP_Main ? INTERRUPT_MFP_MAIN_TIMERB : INTERRUPT_MFP_TT_TIMERB , true , &(pMFP->TimerBCanResume) );
+		pMFP == pMFP_Main ? INTERRUPT_MFP_MAIN_TIMERB : INTERRUPT_MFP_TT_TIMERB , true );
 }
 
 
@@ -1597,7 +1639,7 @@ static void	MFP_ReadTimerB ( MFP_STRUCT *pMFP , bool TimerIsStopping )
 static void	MFP_StartTimerC ( MFP_STRUCT *pMFP )
 {
 	pMFP->TimerCClockCycles = MFP_StartTimer_CD ( pMFP , (pMFP->TCDCR>>4)&7 , pMFP->TC_MAINCOUNTER ,
-		pMFP == pMFP_Main ? INTERRUPT_MFP_MAIN_TIMERC : INTERRUPT_MFP_TT_TIMERC , true , &(pMFP->TimerCCanResume) );
+		pMFP == pMFP_Main ? INTERRUPT_MFP_MAIN_TIMERC : INTERRUPT_MFP_TT_TIMERC , true );
 }
 
 
@@ -1619,7 +1661,7 @@ static void	MFP_ReadTimerC ( MFP_STRUCT *pMFP , bool TimerIsStopping )
 static void	MFP_StartTimerD ( MFP_STRUCT *pMFP )
 {
 	pMFP->TimerDClockCycles = MFP_StartTimer_CD ( pMFP , pMFP->TCDCR&7 , pMFP->TD_MAINCOUNTER ,
-		pMFP == pMFP_Main ? INTERRUPT_MFP_MAIN_TIMERD : INTERRUPT_MFP_TT_TIMERD , true , &(pMFP->TimerDCanResume) );
+		pMFP == pMFP_Main ? INTERRUPT_MFP_MAIN_TIMERD : INTERRUPT_MFP_TT_TIMERD , true );
 }
 
 
@@ -1652,7 +1694,7 @@ static void	MFP_InterruptHandler_TimerA ( MFP_STRUCT *pMFP , interrupt_id Handle
 		MFP_InputOnChannel ( pMFP , MFP_INT_TIMER_A , INT_CONVERT_FROM_INTERNAL ( PendingCyclesOver , INT_CPU_CYCLE ) );
 
 	/* Start next interrupt, if need one - from current cycle count */
-	pMFP->TimerAClockCycles = MFP_StartTimer_AB ( pMFP , pMFP->TACR , pMFP->TADR , Handler , false , &(pMFP->TimerACanResume) );
+	pMFP->TimerAClockCycles = MFP_StartTimer_AB ( pMFP , pMFP->TACR , pMFP->TADR , Handler , false );
 }
 
 
@@ -1686,7 +1728,7 @@ static void	MFP_InterruptHandler_TimerB ( MFP_STRUCT *pMFP , interrupt_id Handle
 		MFP_InputOnChannel ( pMFP , MFP_INT_TIMER_B , INT_CONVERT_FROM_INTERNAL ( PendingCyclesOver , INT_CPU_CYCLE ) );
 
 	/* Start next interrupt, if need one - from current cycle count */
-	pMFP->TimerBClockCycles = MFP_StartTimer_AB ( pMFP , pMFP->TBCR , pMFP->TBDR , Handler , false , &(pMFP->TimerBCanResume) );
+	pMFP->TimerBClockCycles = MFP_StartTimer_AB ( pMFP , pMFP->TBCR , pMFP->TBDR , Handler , false );
 }
 
 
@@ -1720,7 +1762,7 @@ static void	MFP_InterruptHandler_TimerC ( MFP_STRUCT *pMFP , interrupt_id Handle
 		MFP_InputOnChannel ( pMFP , MFP_INT_TIMER_C , INT_CONVERT_FROM_INTERNAL ( PendingCyclesOver , INT_CPU_CYCLE ) );
 
 	/* Start next interrupt, if need one - from current cycle count */
-	pMFP->TimerCClockCycles = MFP_StartTimer_CD ( pMFP , (pMFP->TCDCR>>4)&7 , pMFP->TCDR , Handler , false , &(pMFP->TimerCCanResume) );
+	pMFP->TimerCClockCycles = MFP_StartTimer_CD ( pMFP , (pMFP->TCDCR>>4)&7 , pMFP->TCDR , Handler , false );
 }
 
 
@@ -1754,13 +1796,14 @@ static void	MFP_InterruptHandler_TimerD ( MFP_STRUCT *pMFP , interrupt_id Handle
 		MFP_InputOnChannel ( pMFP , MFP_INT_TIMER_D , INT_CONVERT_FROM_INTERNAL ( PendingCyclesOver , INT_CPU_CYCLE ) );
 
 	/* Start next interrupt, if need one - from current cycle count */
-	pMFP->TimerDClockCycles = MFP_StartTimer_CD ( pMFP , pMFP->TCDCR&7 , pMFP->TDDR , Handler , false , &(pMFP->TimerDCanResume) );
+	pMFP->TimerDClockCycles = MFP_StartTimer_CD ( pMFP , pMFP->TCDCR&7 , pMFP->TDDR , Handler , false );
 }
 
 
 void	MFP_Main_InterruptHandler_TimerD ( void )
 {
 	MFP_InterruptHandler_TimerD ( pMFP_Main , INTERRUPT_MFP_MAIN_TIMERD );
+	RS232_Update();
 }
 
 
@@ -1784,6 +1827,67 @@ void	MFP_GPIP_ReadByte ( void )
 		MFP_GPIP_ReadByte_TT ( pMFP_TT );
 }
 
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Compute value of GPIP bit 7 for main MFP.
+ * This bit can be a combination of the monochrome monitor signal and
+ * the dma sound status (depending on the machine type)
+ */
+uint8_t    MFP_Main_Compute_GPIP7 ( void )
+{
+	uint8_t	Bit;
+
+	if (Config_IsMachineFalcon())
+	{
+		if (Crossbar_Get_SNDINT_Line())
+			Bit = 1;
+		else
+			Bit = 0;
+
+		/* Sparrow / TOS 2.07 still use monitor detection via GPIP7 */
+		if (TosVersion == 0x207 && !Video_Get_MONO_Line())
+			Bit ^= 1;
+	}
+	else
+	{
+		if (!Video_Get_MONO_Line())
+			Bit  = 1;		/* Color monitor : set bit 7 */
+		else
+			Bit = 0;		/* Monochrome monitor : clear bit 7 */
+
+		/* In case of STE/TT, bit 7 is XORed with DMA sound XSINT signal */
+		if ( ( Config_IsMachineSTE() || Config_IsMachineTT() ) && DmaSnd_Get_XSINT_Line() )
+			Bit ^= 1;
+	}
+
+	return Bit;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Compute value of GPIP bit 4 for main MFP.
+ * This bit is a OR between the 2 ACIA's IRQ for IKBD and Midi
+ * NOTE : signal is active low on ACIA, IRQ is set when line's value is 0
+ */
+uint8_t    MFP_Main_Compute_GPIP_LINE_ACIA ( void )
+{
+	uint8_t	Bit;
+
+	/* If any of the ACIA has IRQ set, set IRQ on GPIP 4 */
+	if ( ( pACIA_IKBD->Get_Line_IRQ ( pACIA_IKBD ) == 0 )
+	    || ( pACIA_MIDI->Get_Line_IRQ ( pACIA_MIDI ) == 0 ) )
+		Bit = 0;			/* IRQ ON */
+
+	/* If both ACIA have IRQ clear */
+	else
+		Bit = 1;			/* IRQ OFF */
+
+	return Bit;
+}
+
+
 /*-----------------------------------------------------------------------*/
 /**
  * Handle read from main MFP GPIP pins register (0xfffa01).
@@ -1805,35 +1909,28 @@ void	MFP_GPIP_ReadByte ( void )
  */
 void	MFP_GPIP_ReadByte_Main ( MFP_STRUCT *pMFP )
 {
-	Uint8	gpip_new;
+	uint8_t	gpip_new;
 
 	M68000_WaitState(4);
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	gpip_new = pMFP->GPIP;
 
 	/* Bit 7 */
-	if (Config_IsMachineFalcon())
-	{
-		if (nCbar_DmaSoundControl & CROSSBAR_SNDCTRL_PLAY || nCbar_DmaSoundControl & CROSSBAR_SNDCTRL_RECORD)
-			gpip_new |= 0x80;
-		else
-			gpip_new &= ~0x80;
-
-		/* Sparrow / TOS 2.07 still use monitor detection via GPIP7 */
-		if (TosVersion == 0x207 && !bUseHighRes)
-			gpip_new ^= 0x80;
-	}
+	if ( MFP_Main_Compute_GPIP7() )
+		gpip_new |= 0x80;		/* set bit 7 */
 	else
-	{
-		if (!bUseHighRes)
-			gpip_new |= 0x80;	/* Color monitor -> set top bit */
-		else
-			gpip_new &= ~0x80;
+		gpip_new &= ~0x80;		/* clear bit 7 */
 
-		if (nDmaSoundControl & DMASNDCTRL_PLAY)
-			gpip_new ^= 0x80;	/* Top bit is XORed with DMA sound control play bit (Ste/TT emulation mode)*/
-	}
+	/* Bit 4 */
+	if ( MFP_Main_Compute_GPIP_LINE_ACIA() )
+		gpip_new |= 0x10;		/* set bit 4 */
+	else
+		gpip_new &= ~0x10;		/* clear bit 4 */
 
+	/* Bit 0 */
 	if (ConfigureParams.Printer.bEnablePrinting)
 	{
 		/* Signal that printer is not busy */
@@ -1877,9 +1974,12 @@ void	MFP_GPIP_ReadByte_Main ( MFP_STRUCT *pMFP )
  */
 void	MFP_GPIP_ReadByte_TT ( MFP_STRUCT *pMFP )
 {
-	Uint8	gpip_new;
+	uint8_t	gpip_new;
 
 	M68000_WaitState(4);
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	/* TODO : handle all bits, bit 7 is scsi, bit 4 is DC signal, other bits default to 1 for now */
 	gpip_new = pMFP->GPIP;
@@ -1915,6 +2015,9 @@ void	MFP_ActiveEdge_ReadByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	IoMem[IoAccessCurrentAddress] = pMFP->AER;
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_READ ) )
@@ -1941,6 +2044,9 @@ void	MFP_DataDirection_ReadByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	IoMem[IoAccessCurrentAddress] = pMFP->DDR;
 
@@ -1969,6 +2075,9 @@ void	MFP_EnableA_ReadByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	IoMem[IoAccessCurrentAddress] = pMFP->IERA;
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_READ ) )
@@ -1995,6 +2104,9 @@ void	MFP_EnableB_ReadByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	IoMem[IoAccessCurrentAddress] = pMFP->IERB;
 
@@ -2023,6 +2135,9 @@ void	MFP_PendingA_ReadByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	IoMem[IoAccessCurrentAddress] = pMFP->IPRA;
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_READ ) )
@@ -2049,6 +2164,9 @@ void	MFP_PendingB_ReadByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	IoMem[IoAccessCurrentAddress] = pMFP->IPRB;
 
@@ -2077,6 +2195,9 @@ void	MFP_InServiceA_ReadByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	IoMem[IoAccessCurrentAddress] = pMFP->ISRA;
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_READ ) )
@@ -2103,6 +2224,9 @@ void	MFP_InServiceB_ReadByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	IoMem[IoAccessCurrentAddress] = pMFP->ISRB;
 
@@ -2131,6 +2255,9 @@ void	MFP_MaskA_ReadByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	IoMem[IoAccessCurrentAddress] = pMFP->IMRA;
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_READ ) )
@@ -2157,6 +2284,9 @@ void	MFP_MaskB_ReadByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	IoMem[IoAccessCurrentAddress] = pMFP->IMRB;
 
@@ -2185,6 +2315,9 @@ void	MFP_VectorReg_ReadByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	IoMem[IoAccessCurrentAddress] = pMFP->VR;
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_READ ) )
@@ -2211,6 +2344,9 @@ void	MFP_TimerACtrl_ReadByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	IoMem[IoAccessCurrentAddress] = pMFP->TACR;
 
@@ -2239,6 +2375,9 @@ void	MFP_TimerBCtrl_ReadByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	IoMem[IoAccessCurrentAddress] = pMFP->TBCR;
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_READ ) )
@@ -2265,6 +2404,9 @@ void	MFP_TimerCDCtrl_ReadByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	IoMem[IoAccessCurrentAddress] = pMFP->TCDCR;
 
@@ -2293,6 +2435,9 @@ void	MFP_TimerAData_ReadByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	if ( pMFP->TACR != 8 )				/* Is event count? Need to update counter */
 		MFP_ReadTimerA ( pMFP , false );	/* Store result in 'TA_MAINCOUNTER' */
 
@@ -2315,7 +2460,7 @@ void	MFP_TimerAData_ReadByte ( void )
 void MFP_TimerBData_ReadByte(void)
 {
 	MFP_STRUCT	*pMFP;
-	Uint8		TB_count;
+	uint8_t		TB_count;
 
 	M68000_WaitState(4);
 
@@ -2323,6 +2468,9 @@ void MFP_TimerBData_ReadByte(void)
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	/* Is it event count mode or not? */
 	if ( pMFP->TBCR != 8 )
@@ -2350,7 +2498,7 @@ void MFP_TimerBData_ReadByte(void)
 			Video_GetPosition ( &FrameCycles , &HblCounterVideo , &pos_start );
 			pos_start >>= nCpuFreqShift;
 
-			/* Cycle position of the read for the current instruction (approximatively, we consider */
+			/* Cycle position of the read for the current instruction (approximately, we consider */
 			/* the read happens after 4 cycles (due to MFP wait states in that case)) */
 			/* This is quite a hack, but hard to do without proper 68000 read cycle emulation */
 			if ( CurrentInstrCycles <= 8 )			/* move.b (a0),d0 / cmp.b (a0),d0 ... */
@@ -2362,7 +2510,11 @@ void MFP_TimerBData_ReadByte(void)
 
 			/* If Timer B's change happens before the read cycle of the current instruction, we must return */
 			/* the current value - 1 (because MFP_TimerB_EventCount_Interrupt was not called yet) */
-			if ( (nHBL >= nStartHBL ) && ( nHBL < nEndHBL )	/* ensure display is ON and timer B can happen */
+			/* NOTE This is only needed when CpuRunCycleExact=false ; when CpuRunCycleExact=true, MFP_UpdateTimers() */
+			/* was already called above and MFP_TimerB_EventCount_Interrupt should have been called too if needed */
+			/* so TB_count should already be the correct value */
+			if ( !CpuRunCycleExact
+				&& (nHBL >= nStartHBL ) && ( nHBL < nEndHBL )	/* ensure display is ON and timer B can happen */
 				&& ( LineTimerBPos > pos_start ) && ( LineTimerBPos < pos_read ) )
 			{
 				LOG_TRACE(TRACE_MFP_READ , "mfp%s read tbdr overlaps pos_start=%d TB_pos=%d pos_read=%d nHBL=%d \n",
@@ -2371,7 +2523,7 @@ void MFP_TimerBData_ReadByte(void)
 				TB_count--;
 				if ( TB_count == 0 )			/* going from 1 to 0 : timer restart, reload data reg */
 					TB_count = pMFP->TBDR;
-				/* Going from 0 to -1 : data reg is in fact going from 256 to 255. As TB_count is Uint8, */
+				/* Going from 0 to -1 : data reg is in fact going from 256 to 255. As TB_count is uint8_t, */
 				/* this is already what we get when we decrement TB_count=0. So, the next 2 lines are redundant. */
 	/*			else if ( TB_count < 0 )
 					TB_count = 255;
@@ -2412,6 +2564,9 @@ void	MFP_TimerCData_ReadByte(void)
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	MFP_ReadTimerC ( pMFP , false );		/* Store result in 'TC_MAINCOUNTER' */
 
 	IoMem[IoAccessCurrentAddress] = pMFP->TC_MAINCOUNTER;
@@ -2433,7 +2588,7 @@ void	MFP_TimerCData_ReadByte(void)
 void	MFP_TimerDData_ReadByte ( void )
 {
 	MFP_STRUCT	*pMFP;
-	Uint32		pc = M68000_GetPC();
+	uint32_t		pc = M68000_GetPC();
 
 	M68000_WaitState(4);
 
@@ -2441,6 +2596,9 @@ void	MFP_TimerDData_ReadByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before reading the register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	/* Special case for the main MFP when bPatchTimerD is used */
 	/* NOTE : in TT mode TOS also starts useless timer D on the TT MFP, so we should restore */
@@ -2479,8 +2637,8 @@ void	MFP_TimerDData_ReadByte ( void )
 void	MFP_GPIP_WriteByte ( void )
 {
 	MFP_STRUCT	*pMFP;
-	Uint8		GPIP_old;
-	Uint8		GPIP_new;
+	uint8_t		GPIP_old;
+	uint8_t		GPIP_new;
 
 	M68000_WaitState(4);
 
@@ -2488,6 +2646,9 @@ void	MFP_GPIP_WriteByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -2518,7 +2679,7 @@ void	MFP_GPIP_WriteByte ( void )
 void	MFP_ActiveEdge_WriteByte ( void )
 {
 	MFP_STRUCT	*pMFP;
-	Uint8		AER_old;
+	uint8_t		AER_old;
 
 	M68000_WaitState(4);
 
@@ -2526,6 +2687,9 @@ void	MFP_ActiveEdge_WriteByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -2593,7 +2757,7 @@ void	MFP_ActiveEdge_WriteByte ( void )
 void	MFP_DataDirection_WriteByte ( void )
 {
 	MFP_STRUCT	*pMFP;
-	Uint8		DDR_old;
+	uint8_t		DDR_old;
 
 	M68000_WaitState(4);
 
@@ -2601,6 +2765,9 @@ void	MFP_DataDirection_WriteByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -2634,6 +2801,9 @@ void	MFP_EnableA_WriteByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
 		int FrameCycles, HblCounterVideo, LineCycles;
@@ -2662,6 +2832,9 @@ void	MFP_EnableB_WriteByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -2692,6 +2865,9 @@ void	MFP_PendingA_WriteByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
 		int FrameCycles, HblCounterVideo, LineCycles;
@@ -2719,6 +2895,9 @@ void	MFP_PendingB_WriteByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -2748,6 +2927,9 @@ void	MFP_InServiceA_WriteByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
 		int FrameCycles, HblCounterVideo, LineCycles;
@@ -2775,6 +2957,9 @@ void	MFP_InServiceB_WriteByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -2804,6 +2989,9 @@ void	MFP_MaskA_WriteByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
 		int FrameCycles, HblCounterVideo, LineCycles;
@@ -2832,6 +3020,9 @@ void	MFP_MaskB_WriteByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
 		int FrameCycles, HblCounterVideo, LineCycles;
@@ -2852,7 +3043,7 @@ void	MFP_MaskB_WriteByte ( void )
 void	MFP_VectorReg_WriteByte ( void )
 {
 	MFP_STRUCT	*pMFP;
-	Uint8		old_vr;
+	uint8_t		old_vr;
 
 	M68000_WaitState(4);
 
@@ -2860,6 +3051,9 @@ void	MFP_VectorReg_WriteByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -2893,7 +3087,7 @@ void	MFP_VectorReg_WriteByte ( void )
 void	MFP_TimerACtrl_WriteByte ( void )
 {
 	MFP_STRUCT	*pMFP;
-	Uint8		new_tacr;
+	uint8_t		new_tacr;
 
 	M68000_WaitState(4);
 
@@ -2901,6 +3095,9 @@ void	MFP_TimerACtrl_WriteByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -2934,7 +3131,7 @@ void	MFP_TimerACtrl_WriteByte ( void )
 void MFP_TimerBCtrl_WriteByte(void)
 {
 	MFP_STRUCT	*pMFP;
-	Uint8		new_tbcr;
+	uint8_t		new_tbcr;
 
 	M68000_WaitState(4);
 
@@ -2942,6 +3139,9 @@ void MFP_TimerBCtrl_WriteByte(void)
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -2975,8 +3175,8 @@ void MFP_TimerBCtrl_WriteByte(void)
 void	MFP_TimerCDCtrl_WriteByte(void)
 {
 	MFP_STRUCT	*pMFP;
-	Uint8		new_tcdcr;
-	Uint8		old_tcdcr;
+	uint8_t		new_tcdcr;
+	uint8_t		old_tcdcr;
 
 	M68000_WaitState(4);
 
@@ -2984,6 +3184,9 @@ void	MFP_TimerCDCtrl_WriteByte(void)
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -3013,7 +3216,7 @@ void	MFP_TimerCDCtrl_WriteByte(void)
 
 	if ((old_tcdcr & 0x07) != (new_tcdcr & 0x07))	/* Timer D control changed */
 	{
-		Uint32 pc = M68000_GetPC();
+		uint32_t pc = M68000_GetPC();
 
 		/* Special case for main MFP and TT MFP when bPatchTimerD is used */
 		if (ConfigureParams.System.bPatchTimerD && !pMFP->PatchTimerD_Done
@@ -3073,6 +3276,9 @@ void	MFP_TimerAData_WriteByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
 		int FrameCycles, HblCounterVideo, LineCycles;
@@ -3087,7 +3293,6 @@ void	MFP_TimerAData_WriteByte ( void )
 	if ( pMFP->TACR == 0 )				/* Now check if timer is running - if so do not set */
 	{
 		pMFP->TA_MAINCOUNTER = pMFP->TADR;	/* Timer is off, store to main counter */
-		pMFP->TimerACanResume = false;		/* we need to set a new int when timer start */
 	}
 }
 
@@ -3106,6 +3311,9 @@ void	MFP_TimerBData_WriteByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
 		int FrameCycles, HblCounterVideo, LineCycles;
@@ -3120,7 +3328,6 @@ void	MFP_TimerBData_WriteByte ( void )
 	if ( pMFP->TBCR == 0 )				/* Now check if timer is running - if so do not set */
 	{
 		pMFP->TB_MAINCOUNTER = pMFP->TBDR;	/* Timer is off, store to main counter */
-		pMFP->TimerBCanResume = false;		/* we need to set a new int when timer start */
 	}
 }
 
@@ -3139,6 +3346,9 @@ void	MFP_TimerCData_WriteByte ( void )
 	else
 		pMFP = pMFP_TT;
 
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
 		int FrameCycles, HblCounterVideo, LineCycles;
@@ -3153,7 +3363,6 @@ void	MFP_TimerCData_WriteByte ( void )
 	if ( (pMFP->TCDCR & 0x70) == 0 )		/* Now check if timer is running - if so do not set */
 	{
 		pMFP->TC_MAINCOUNTER = pMFP->TCDR;	/* Timer is off, store to main counter */
-		pMFP->TimerCCanResume = false;		/* we need to set a new int when timer start */
 	}
 }
 
@@ -3164,7 +3373,7 @@ void	MFP_TimerCData_WriteByte ( void )
 void	MFP_TimerDData_WriteByte ( void )
 {
 	MFP_STRUCT	*pMFP;
-	Uint32		pc = M68000_GetPC();
+	uint32_t		pc = M68000_GetPC();
 
 	M68000_WaitState(4);
 
@@ -3172,6 +3381,9 @@ void	MFP_TimerDData_WriteByte ( void )
 		pMFP = pMFP_Main;
 	else
 		pMFP = pMFP_TT;
+
+	/* Update timers' state before writing to register */
+	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
 
 	if ( LOG_TRACE_LEVEL( TRACE_MFP_WRITE ) )
 	{
@@ -3205,7 +3417,6 @@ void	MFP_TimerDData_WriteByte ( void )
 	if ( (pMFP->TCDCR & 0x07) == 0 )		/* Now check if timer is running - if so do not set */
 	{
 		pMFP->TD_MAINCOUNTER = pMFP->TDDR;	/* Timer is off, store to main counter */
-		pMFP->TimerDCanResume = false;		/* we need to set a new int when timer start */
 	}
 }
 
@@ -3241,7 +3452,7 @@ static void MFP_Show(FILE *fp, MFP_STRUCT *mfp)
 	fprintf(fp, "Input signal on Timer B: 0x%02x\n", mfp->TBI);
 }
 
-void MFP_Info(FILE *fp, Uint32 dummy)
+void MFP_Info(FILE *fp, uint32_t dummy)
 {
 	MFP_Show(fp, pMFP_Main);
 	if (Config_IsMachineTT())
