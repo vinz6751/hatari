@@ -47,6 +47,13 @@ extern void NvRam_Select_ReadByte(void);
 extern void NvRam_Select_WriteByte(void);
 extern void NvRam_Data_ReadByte(void);
 extern void NvRam_Data_WriteByte(void);
-extern void NvRam_Info(FILE *fp, Uint32 dummy);
+extern void NvRam_Info(FILE *fp, uint32_t dummy);
+
+/* for tos.c */
+static inline bool NvRam_Present(void)
+{
+	return ConfigureParams.System.nMachineType == MACHINE_TT ||
+	       ConfigureParams.System.nMachineType == MACHINE_FALCON;
+}
 
 #endif /* HATARI_NVRAM_H */

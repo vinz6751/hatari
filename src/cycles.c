@@ -44,7 +44,7 @@ int	nCyclesMainCounter;			/* Main cycles counter since previous Cycles_UpdateCou
 
 static int nCyclesCounter[CYCLES_COUNTER_MAX];	/* Array with all counters */
 
-Uint64	CyclesGlobalClockCounter = 0;		/* Global clock counter since starting Hatari (it's never reset afterwards) */
+uint64_t CyclesGlobalClockCounter = 0;		/* Global clock counter since starting Hatari (it's never reset afterwards) */
 
 int	CurrentInstrCycles;
 
@@ -126,17 +126,15 @@ int Cycles_GetInternalCycleOnReadAccess(void)
 	{
 		AddCycles = 4 + WaitStateCycles;
 	}
-#ifdef WINUAE_FOR_HATARI
 	/* When using WinUAE CPU in CE mode, 'currcycle' will be the number of cycles */
 	/* inside the current opcode just before accessing memory. */
 	/* As memory accesses take 4 cycles, we just need to add 4 cycles to get */
 	/* the number of cycles when the read will be completed. */
 	/* (see mem_access_delay_XXX_read() in cpu_prefetch.h and wait_cpu_cycle_read() in custom.c) */
-	else if ( currprefs.cpu_cycle_exact )
+	else if ( CpuRunCycleExact )
 	{
 		AddCycles = currcycle*2/CYCLE_UNIT + 4;
 	}
-#endif
 	else							/* BUS_MODE_CPU */
 	{
 		/* TODO: Find proper cycles count depending on the opcode/family of the current instruction */
@@ -174,17 +172,15 @@ int Cycles_GetInternalCycleOnWriteAccess(void)
 	{
 		AddCycles = 4 + WaitStateCycles;
 	}
-#ifdef WINUAE_FOR_HATARI
 	/* When using WinUAE CPU in CE mode, 'currcycle' will be the number of cycles */
 	/* inside the current opcode just before accessing memory. */
 	/* As memory accesses take 4 cycles, we just need to add 4 cycles to get */
 	/* the number of cycles when the write will be completed. */
 	/* (see mem_access_delay_XXX_write() in cpu_prefetch.h and wait_cpu_cycle_write() in custom.c) */
-	else if ( currprefs.cpu_cycle_exact )
+	else if ( CpuRunCycleExact )
 	{
 		AddCycles = currcycle*2/CYCLE_UNIT + 4;
 	}
-#endif
 	else							/* BUS_MODE_CPU */
 	{
 		/* TODO: Find proper cycles count depending on the type of the current instruction */
@@ -218,10 +214,9 @@ int Cycles_GetInternalCycleOnWriteAccess(void)
 			if (nIoMemAccessSize == SIZE_LONG)		/* long access from a movem.l */
 			{
 				//AddCycles += -4 + IoAccessInstrCount * 8 - 4;
-				AddCycles -= 0;				/* NOTE [NP] : this is used by old uae cpu core but does not happen */
+				AddCycles -= 0;				/* NOTE : this is used only if cycle exact and prefetch are */
+									/* disabled in the CPU, but this certainly does not happen */
 									/* on real HW because IO regs can't be accessesed with a long */
-									/* FIXME : fix old uae cpu to remove long accesses to memory for 68000 ? */
-									/* We keep it this way for now ... */
 			}
 			else						/* word access with movem.w or movem.l doing 2 words accesses per long */
 			{
@@ -284,7 +279,7 @@ int Cycles_GetCounterOnWriteAccess(int nId)
  * Read the main clock counter on CPU memory read access by taking care of the instruction
  * type (add the needed amount of additional cycles).
  */
-Uint64 Cycles_GetClockCounterOnReadAccess(void)
+uint64_t Cycles_GetClockCounterOnReadAccess(void)
 {
 	int AddCycles;
 
@@ -299,7 +294,7 @@ Uint64 Cycles_GetClockCounterOnReadAccess(void)
  * Read the main clock counter on CPU memory write access by taking care of the instruction
  * type (add the needed amount of additional cycles).
  */
-Uint64 Cycles_GetClockCounterOnWriteAccess(void)
+uint64_t Cycles_GetClockCounterOnWriteAccess(void)
 {
 	int AddCycles;
 
@@ -310,3 +305,17 @@ Uint64 Cycles_GetClockCounterOnWriteAccess(void)
 
 
 
+/*-----------------------------------------------------------------------*/
+/**
+ * Read the main clock counter
+ * This function is mainly used in CycInt_xxx functions, either after processing
+ * the current instruction (then currcycle=0) or during the processing of the current
+ * instruction.
+ */
+uint64_t Cycles_GetClockCounterImmediate(void)
+{
+	if ( CpuRunCycleExact )
+		return CyclesGlobalClockCounter + currcycle*2/CYCLE_UNIT;
+	else
+		return CyclesGlobalClockCounter;
+}

@@ -1,7 +1,7 @@
 
-if(READLINE_FOUND)
+if(Readline_FOUND)
 	include_directories(${READLINE_INCLUDE_DIR})
-endif(READLINE_FOUND)
+endif(Readline_FOUND)
 
 if(ENABLE_DSP_EMU)
 	set(DSPDBG_C debugdsp.c)
@@ -12,3 +12,5 @@ add_library(Debug
 	    ${DSPDBG_C} evaluate.c history.c symbols.c vars.c
 	    profile.c profilecpu.c profiledsp.c
 	    natfeats.c console.c 68kDisass.c)
+
+target_link_libraries(Debug PRIVATE ${SDL2_LIBRARIES})

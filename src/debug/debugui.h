@@ -13,7 +13,8 @@
 /* DebugUI_ParseCommand() return values */
 enum {
 	DEBUGGER_END,      // Leave debugger
-	DEBUGGER_CMDCONT,  // Command can continue
+	DEBUGGER_ENDCONT,  // Command can be repeated + leaves debugger
+	DEBUGGER_CMDCONT,  // Command can be repeated
 	DEBUGGER_CMDDONE   // Command done
 };
 
@@ -35,5 +36,6 @@ extern void DebugUI_Exceptions(int nr, long pc);
 extern bool DebugUI_ParseLine(const char *input);
 extern bool DebugUI_AddParseFile(const char *input);
 extern void DebugUI_MemorySnapShot_Capture(const char *path, bool bSave);
+extern void DebugUI_UnInit(void);
 
 #endif /* HATARI_DEBUGUI_H */

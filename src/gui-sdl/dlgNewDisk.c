@@ -28,7 +28,7 @@ const char DlgNewDisk_fileid[] = "Hatari dlgNewDisk.c";
 #define DLGNEWDISK_SAVE       17
 #define DLGNEWDISK_EXIT       18
 
-static char szTracks[3];
+static char szTracks[12];		/* We only use 3 chars but we need a bigger buffer to silence gcc warnings */
 static int nTracks = 80;
 
 #define DLGNEWDISK_LABEL_SIZE	(8+3)
@@ -122,7 +122,7 @@ char *DlgNewDisk_Main(void)
 	/* Draw and process the dialog */
 	do
 	{
-		but = SDLGui_DoDialog(newdiskdlg, NULL, false);
+		but = SDLGui_DoDialog(newdiskdlg);
 		switch(but)
 		{
 		 case DLGNEWDISK_DECTRACK:

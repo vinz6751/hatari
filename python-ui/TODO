@@ -4,20 +4,21 @@ TODO
 Potential TODO items for Hatari UI (in addition to the ones listed in
 its sources).
 
-* Fix Gtk v3 and its Python bindings deprecation warnings:
-  - See: https://python-gtk-3-tutorial.readthedocs.io/en/latest/
-  - Menus & ActionGroups -> Application framework
-  - Table -> Grid layout in dialogs
-  - Positional -> named arguments
+* Fix rest of Gtk v3 / PyGTK deprecation warnings by creating all
+  Python UI menus with XML and Gtk application framework instead of
+  using Gtk v2 Action + ActionGroup widgets, see:
+  - https://python-gtk-3-tutorial.readthedocs.io/en/latest/application.html
+
+* Rewrite all configuration dialogs into Mac UI style single (notebook)
+  dialog with tabs, using Gtk v3 Grid layout widget, so that only single
+  configuration menu entry remains
 
 * Interface between UI and Hatari so that Hatari will forward error
   and other dialog texts to UI for showing, and waits until user has
   acknowledged them (two-way communication)
 
-* WinUAE CPU core specific configuration options:
-  - MMU
-  - FPU
-  - 32-bit addressing
+* WinUAE CPU core specific configuration options: 32-bit addressing,
+  MMU, FPU softfloat etc
 
 * Support all 8 ACSI and SCSI drives
 
@@ -49,8 +50,6 @@ its sources).
     but still allow Hatari to process remote commands?)
   - trace & debug log viewers?
 
-* Put all configuration stuff into single notebook dialog?
-
 * Translation support for the UI:
   - use gettext
   - build needs to build & install message catalogs
@@ -73,7 +72,7 @@ its sources).
   - HD booting, something for multiple GEMDOS partition directories
   - separate A/B disk paths for images that are within ZIP archives
   - joystick autofire toggling, defining the keys for joyemu
-  - vdi planes and size, SDL bpp forcing, spec512 threshold, ST blitter
+  - vdi planes and size, spec512 threshold, ST blitter
   - cartridge image (where? it has many limitations)
   - log file and levels, console output, bios intercept, run-VBLs
 

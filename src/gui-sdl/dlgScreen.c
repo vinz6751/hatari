@@ -8,6 +8,7 @@
 */
 const char DlgScreen_fileid[] = "Hatari dlgScreen.c";
 
+#include <assert.h>
 #include "main.h"
 #include "configuration.h"
 #include "dialog.h"
@@ -22,6 +23,10 @@ const char DlgScreen_fileid[] = "Hatari dlgScreen.c";
 #include "statusbar.h"
 #include "clocks_timings.h"
 
+/* how many pixels to increment VDI mode
+ * width/height on each click
+ */
+#define VDI_SIZE_INC	     16
 
 /* The Monitor dialog: */
 #define DLGSCRN_MONO         3
@@ -98,14 +103,10 @@ static SGOBJ monitordlg[] =
 #define DLGSCRN_CROP        28
 #define DLGSCRN_CAPTURE     29
 #define DLGSCRN_RECANIM     30
-#if WITH_SDL2
 #define DLGSCRN_GPUSCALE    33
 #define DLGSCRN_RESIZABLE   34
 #define DLGSCRN_VSYNC       35
 #define DLGSCRN_EXIT_WINDOW 36
-#else
-#define DLGSCRN_EXIT_WINDOW 31
-#endif
 
 /* needs to match Frame skip values in windowdlg[]! */
 static const int skip_frames[] = { 0, 1, 2, 4, AUTO_FRAMESKIP_LIMIT };
@@ -119,11 +120,7 @@ static char sMaxHeight[5];
 /* The window dialog: */
 static SGOBJ windowdlg[] =
 {
-#if WITH_SDL2
 	{ SGBOX, 0, 0, 0,0, 52,25, NULL },
-#else
-	{ SGBOX, 0, 0, 0,0, 52,20, NULL },
-#endif
 	{ SGBOX,      0, 0,  1,1, 50,10, NULL },
 	{ SGTEXT,     0, 0,  4,2, 20,1, "Hatari screen options" },
 	{ SGCHECKBOX, 0, 0,  4,4, 12,1, "_Fullscreen" },
@@ -137,17 +134,10 @@ static SGOBJ windowdlg[] =
 	{ SGRADIOBUT, 0, 0, 21,7,  3,1, "_2" },
 	{ SGRADIOBUT, 0, 0, 21,8,  3,1, "_4" },
 	{ SGRADIOBUT, 0, 0, 21,9,  6,1, "_Auto" },
-#if WITH_SDL2
 	{ SGTEXT,     0, 0, 35,4, 10,1, "resolution" },
 	{ SGTEXT,     0, 0, 35,5, 13,1, "in fullscreen" },
 	{ SGTEXT,     0, 0, 33,2,  1,1, "" },
 	{ SGCHECKBOX, 0, 0, 33,3, 14,1, "_Keep desktop" },
-#else
-	{ SGTEXT,     0, 0, 33,2, 14,1, "Keep desktop" },
-	{ SGTEXT,     0, 0, 33,3, 14,1, "resolution:" },
-	{ SGCHECKBOX, 0, 0, 35,4,  8,1, "ST/ST_e" },
-	{ SGCHECKBOX, 0, 0, 35,5, 11,1, "_TT/Falcon" },
-#endif
 	{ SGTEXT,     0, 0, 33,7, 15,1, "Max zoomed win:" },
 	{ SGBUTTON,   0, 0, 35,8,  1,1, "\x04", SG_SHORTCUT_LEFT },
 	{ SGTEXT,     0, 0, 37,8,  4,1, sMaxWidth },
@@ -163,16 +153,13 @@ static SGOBJ windowdlg[] =
 	{ SGBUTTON,   0, 0, 29,13, 14,1, " _Screenshot " },
 	{ SGBUTTON,   0, 0, 29,15, 14,1, NULL },      /* Record text set later */
 
-#if WITH_SDL2
 	{ SGBOX,      0, 0,  1,18, 50,4, NULL },
 	{ SGTEXT,     0, 0, 20,18, 12,1, "SDL2 options" },
 	{ SGCHECKBOX, 0, 0,  8,20, 20,1, "GPU scal_ing" },
 	{ SGCHECKBOX, 0, 0, 23,20, 20,1, "Resi_zable" },
 	{ SGCHECKBOX, 0, 0, 36,20, 11,1, "_VSync" },
 	{ SGBUTTON, SG_DEFAULT, 0, 17,23, 20,1, "Back to main menu" },
-#else
-	{ SGBUTTON, SG_DEFAULT, 0, 17,18, 20,1, "Back to main menu" },
-#endif
+
 	{ SGSTOP, 0, 0, 0,0, 0,0, NULL }
 };
 
@@ -182,38 +169,24 @@ static SGOBJ windowdlg[] =
 
 
 /* ---------------------------------------------------------------- */
-
-static int nVdiStepX, nVdiStepY;   /* VDI resolution changing steps */
-
 /**
- * Set width and height stepping for VDI resolution changing.
- * Depending on the color depth we can only change the VDI resolution
- * in certain steps:
- * - The screen width must be dividable by 16 bytes (i.e. 128 pixels in
- *   monochrome, 32 pixels in 16 color mode), or the text mode scrolling
- *   function of TOS will fail.
- * - The screen height must be a multiple of the character cell height
- *   (i.e. 16 pixels in monochrome, 8 pixels in color mode).
+ * To be called when changing VDI mode bit-depth.
+ * Sets width & height stepping for VDI resolution changing,
+ * and returns number of planes. See vdi.[ch] for details.
  */
-static void DlgMonitor_SetVdiStepping(void)
+static int DlgMonitor_SetVdiStepping(int *stepx, int *stepy)
 {
+	int planes;
 	if (monitordlg[DLGSCRN_BPP1].state & SG_SELECTED)
-	{
-		nVdiStepX = 128;
-		nVdiStepY = 16;
-	}
+		planes = 1;
 	else if (monitordlg[DLGSCRN_BPP2].state & SG_SELECTED)
-	{
-		nVdiStepX = 64;
-		nVdiStepY = 8;
-	}
+		planes = 2;
 	else
-	{
-		nVdiStepX = 32;
-		nVdiStepY = 8;
-	}
+		planes = 4;
+	*stepx = VDI_ALIGN_WIDTH;
+	*stepy = VDI_ALIGN_HEIGHT;
+	return planes;
 }
-
 
 /*-----------------------------------------------------------------------*/
 /**
@@ -221,7 +194,7 @@ static void DlgMonitor_SetVdiStepping(void)
  */
 void Dialog_MonitorDlg(void)
 {
-	int but, vdiw, vdih;
+	int but, vdiw, vdih, stepx, stepy, planes;
 	unsigned int i;
 	MONITORTYPE	mti;
 
@@ -250,44 +223,49 @@ void Dialog_MonitorDlg(void)
 
 	vdiw = ConfigureParams.Screen.nVdiWidth;
 	vdih = ConfigureParams.Screen.nVdiHeight;
+	planes = DlgMonitor_SetVdiStepping(&stepx, &stepy);
+	assert(VDI_SIZE_INC >= stepx && VDI_SIZE_INC >= stepy);
 	sprintf(sVdiWidth, "%4i", vdiw);
 	sprintf(sVdiHeight, "%4i", vdih);
-	DlgMonitor_SetVdiStepping();
 
 	/* The monitor dialog main loop */
 	do
 	{
-		but = SDLGui_DoDialog(monitordlg, NULL, false);
+		bool update = true;
+		but = SDLGui_DoDialog(monitordlg);
 		switch (but)
 		{
 		 case DLGSCRN_VDI_WLESS:
-			vdiw = Opt_ValueAlignMinMax(vdiw - nVdiStepX, nVdiStepX, MIN_VDI_WIDTH, MAX_VDI_WIDTH);
-			sprintf(sVdiWidth, "%4i", vdiw);
+			vdiw -= VDI_SIZE_INC;
 			break;
 		 case DLGSCRN_VDI_WMORE:
-			vdiw = Opt_ValueAlignMinMax(vdiw + nVdiStepX, nVdiStepX, MIN_VDI_WIDTH, MAX_VDI_WIDTH);
-			sprintf(sVdiWidth, "%4i", vdiw);
+			vdiw += VDI_SIZE_INC;
 			break;
 
 		 case DLGSCRN_VDI_HLESS:
-			vdih = Opt_ValueAlignMinMax(vdih - nVdiStepY, nVdiStepY, MIN_VDI_HEIGHT, MAX_VDI_HEIGHT);
-			sprintf(sVdiHeight, "%4i", vdih);
+			vdih -= VDI_SIZE_INC;
 			break;
 		 case DLGSCRN_VDI_HMORE:
-			vdih = Opt_ValueAlignMinMax(vdih + nVdiStepY, nVdiStepY, MIN_VDI_HEIGHT, MAX_VDI_HEIGHT);
-			sprintf(sVdiHeight, "%4i", vdih);
+			vdih += VDI_SIZE_INC;
 			break;
 
 		 case DLGSCRN_BPP1:
 		 case DLGSCRN_BPP2:
 		 case DLGSCRN_BPP4:
-			DlgMonitor_SetVdiStepping();
-			/* Align resolution to actual conditions: */
-			vdiw = Opt_ValueAlignMinMax(vdiw, nVdiStepX, MIN_VDI_WIDTH, MAX_VDI_WIDTH);
-			vdih = Opt_ValueAlignMinMax(vdih, nVdiStepY, MIN_VDI_HEIGHT, MAX_VDI_HEIGHT);
+			planes = DlgMonitor_SetVdiStepping(&stepx, &stepy);
+			break;
+
+		default:
+			update = false;
+		}
+		if (update)
+		{
+			/* clamp & align */
+			VDI_ByteLimit(&vdiw, &vdih, planes);
+			vdiw = Opt_ValueAlignMinMax(vdiw, stepx, MIN_VDI_WIDTH, MAX_VDI_WIDTH);
+			vdih = Opt_ValueAlignMinMax(vdih, stepy, MIN_VDI_HEIGHT, MAX_VDI_HEIGHT);
 			sprintf(sVdiWidth, "%4i", vdiw);
 			sprintf(sVdiHeight, "%4i", vdih);
-			break;
 		}
 	}
 	while (but != DLGSCRN_EXIT_MONITOR && but != SDLGUI_QUIT
@@ -339,12 +317,6 @@ void Dialog_WindowDlg(void)
 		windowdlg[DLGSCRN_KEEP_RES].state |= SG_SELECTED;
 	else
 		windowdlg[DLGSCRN_KEEP_RES].state &= ~SG_SELECTED;
-#if !WITH_SDL2
-	if (ConfigureParams.Screen.bKeepResolutionST)
-		windowdlg[DLGSCRN_KEEP_RES_ST].state |= SG_SELECTED;
-	else
-		windowdlg[DLGSCRN_KEEP_RES_ST].state &= ~SG_SELECTED;
-#endif
 
 	windowdlg[DLGSCRN_STATUSBAR].state &= ~SG_SELECTED;
 	windowdlg[DLGSCRN_DRIVELED].state &= ~SG_SELECTED;
@@ -382,7 +354,6 @@ void Dialog_WindowDlg(void)
 	else
 		windowdlg[DLGSCRN_RECANIM].txt = RECORD_START;
 
-#if WITH_SDL2
 	/* SDL2 options */
 	if (ConfigureParams.Screen.bResizable)
 		windowdlg[DLGSCRN_RESIZABLE].state |= SG_SELECTED;
@@ -397,12 +368,11 @@ void Dialog_WindowDlg(void)
 		windowdlg[DLGSCRN_VSYNC].state |= SG_SELECTED;
 	else
 		windowdlg[DLGSCRN_VSYNC].state &= ~SG_SELECTED;
-#endif
 
 	/* The window dialog main loop */
 	do
 	{
-		but = SDLGui_DoDialog(windowdlg, NULL, false);
+		but = SDLGui_DoDialog(windowdlg);
 		switch (but)
 		{
 		 case DLGSCRN_MAX_WLESS:
@@ -424,7 +394,7 @@ void Dialog_WindowDlg(void)
 			break;
 
 		 case DLGSCRN_CAPTURE:
-			SDL_UpdateRect(sdlscrn, 0,0,0,0);
+			Screen_UpdateRect(sdlscrn, 0,0,0,0);
 			ConfigureParams.Screen.bCrop = (windowdlg[DLGSCRN_CROP].state & SG_SELECTED);
 			ScreenSnapShot_SaveScreen();
 			break;
@@ -446,7 +416,7 @@ void Dialog_WindowDlg(void)
 				Avi_StartRecording ( ConfigureParams.Video.AviRecordFile , ConfigureParams.Screen.bCrop ,
 					ConfigureParams.Video.AviRecordFps == 0 ?
 						ClocksTimings_GetVBLPerSec ( ConfigureParams.System.nMachineType , nScreenRefreshRate ) :
-						(Uint32)ConfigureParams.Video.AviRecordFps << CLOCKS_TIMINGS_SHIFT_VBL ,
+						ClocksTimings_GetVBLPerSec ( ConfigureParams.System.nMachineType , ConfigureParams.Video.AviRecordFps ) ,
 					1 << CLOCKS_TIMINGS_SHIFT_VBL ,
 					ConfigureParams.Video.AviRecordVcodec );
 				windowdlg[DLGSCRN_RECANIM].txt = RECORD_STOP;
@@ -461,9 +431,6 @@ void Dialog_WindowDlg(void)
 
 	ConfigureParams.Screen.bFullScreen = (windowdlg[DLGSCRN_FULLSCRN].state & SG_SELECTED);
 	ConfigureParams.Screen.bKeepResolution = (windowdlg[DLGSCRN_KEEP_RES].state & SG_SELECTED);
-#if !WITH_SDL2
-	ConfigureParams.Screen.bKeepResolutionST = (windowdlg[DLGSCRN_KEEP_RES_ST].state & SG_SELECTED);
-#endif
 
 	ConfigureParams.Screen.nMaxWidth = maxw;
 	ConfigureParams.Screen.nMaxHeight = maxh;
@@ -486,9 +453,7 @@ void Dialog_WindowDlg(void)
 
 	ConfigureParams.Screen.bCrop = (windowdlg[DLGSCRN_CROP].state & SG_SELECTED);
 
-#if WITH_SDL2
 	ConfigureParams.Screen.bResizable = (windowdlg[DLGSCRN_RESIZABLE].state & SG_SELECTED);
 	ConfigureParams.Screen.bUseSdlRenderer = (windowdlg[DLGSCRN_GPUSCALE].state & SG_SELECTED);
 	ConfigureParams.Screen.bUseVsync = (windowdlg[DLGSCRN_VSYNC].state & SG_SELECTED);
-#endif
 }

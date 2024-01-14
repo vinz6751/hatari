@@ -53,7 +53,7 @@ like this:
 	PATH=../../build/src:$PATH make
 
 Before running that, tos/ subdirectory should have (symbolic links to)
-TOS images you want to test, at least EmuTOS etos512k.img image.
+TOS images you want to test, at least EmuTOS etos1024k.img image.
 Or add this before above command:
 	TOSDIR=<path to TOS images dir>
 
@@ -82,9 +82,9 @@ supports:
 
 * TV, VGA, RGB and monochrome monitors and 1, 2 & 4 plane VDI modes
 
-* Different amounts of ST-RAM from 0 (0.5MB) to 14MB
+* Different amounts of ST-RAM from 0 (0.5 MiB) to 14 MiB
 
-* Different amounts of TT-RAM from 0 to 512MB
+* Different amounts of TT-RAM from 0 to 1024 MiB
 
 * With and without GEMDOS harddisk directory emulation
 
@@ -112,7 +112,7 @@ What to test
 For each Hatari release it would be good to test e.g. the following
 TOS versions:
   v1.00 de, v1.02 de, v1.04 de, v1.04 us, v1.62 de, v1.62 us,
-  v2.06 de, v3.06 us, v4.04, etos192k, etos512k[1]
+  v2.06 de, v3.06 us, v4.04, etos192k, etos1024k[1]
 
 [1] Just the latest release of EmuTOS.
 
@@ -130,10 +130,6 @@ Memory configurations:
 
 And both with GEMDOS HD and just floppy.  For EmuTOS, also ACSI (with
 ST/STe/TT), IDE (with Falcon) and SCSI (with Falcon/TT).
-
-Testing should be done both for old UAE CPU core and the new WinUAE
-one.  This should give good enough coverage of all the possible bootup
-issues.
 
 Note that it's enough to give the whole set of HW configurations to
 TOS tester, it will automatically select a suitable subset of HW

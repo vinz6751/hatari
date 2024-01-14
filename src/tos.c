@@ -18,8 +18,6 @@
   to select any of these images we bring up an error. */
 const char TOS_fileid[] = "Hatari tos.c";
 
-#include <SDL_endian.h>
-
 #include "main.h"
 #include "configuration.h"
 #include "file.h"
@@ -30,6 +28,7 @@ const char TOS_fileid[] = "Hatari tos.c";
 #include "log.h"
 #include "m68000.h"
 #include "memorySnapShot.h"
+#include "nvram.h"
 #include "stMemory.h"
 #include "str.h"
 #include "tos.h"
@@ -37,7 +36,6 @@ const char TOS_fileid[] = "Hatari tos.c";
 #include "vdi.h"
 #include "falcon/dsp.h"
 #include "clocks_timings.h"
-#include "screen.h"
 #include "video.h"
 
 #include "faketosData.c"
@@ -46,9 +44,9 @@ const char TOS_fileid[] = "Hatari tos.c";
 #define TEST_PRG_START (TEST_PRG_BASEPAGE + 0x100)
 
 bool bIsEmuTOS;
-Uint32 EmuTosVersion;
-Uint16 TosVersion;                      /* eg. 0x0100, 0x0102 */
-Uint32 TosAddress, TosSize;             /* Address in ST memory and size of TOS image */
+uint32_t EmuTosVersion;
+uint16_t TosVersion;                      /* eg. 0x0100, 0x0102 */
+uint32_t TosAddress, TosSize;             /* Address in ST memory and size of TOS image */
 bool bTosImageLoaded = false;           /* Successfully loaded a TOS image? */
 bool bRamTosImage;                      /* true if we loaded a RAM TOS image */
 bool bUseTos = true;                    /* false if we run in TOS-less test mode */
@@ -80,13 +78,13 @@ enum
 /* This structure is used for patching the TOS ROMs */
 typedef struct
 {
-	Uint16 Version;       /* TOS version number */
-	Sint16 Country;       /* TOS country code: -1 if it does not matter, 0=US, 1=Germany, 2=France, etc. */
+	uint16_t Version;       /* TOS version number */
+	int16_t Country;       /* TOS country code: -1 if it does not matter, 0=US, 1=Germany, 2=France, etc. */
 	const char *pszName;  /* Name of the patch */
 	int Flags;            /* When should the patch be applied? (see enum above) */
-	Uint32 Address;       /* Where the patch should be applied */
-	Uint32 OldData;       /* Expected first 4 old bytes */
-	Uint32 Size;          /* Length of the patch */
+	uint32_t Address;       /* Where the patch should be applied */
+	uint32_t OldData;       /* Expected first 4 old bytes */
+	uint32_t Size;          /* Length of the patch */
 	const void *pNewData; /* Pointer to the new bytes */
 } TOS_PATCH;
 
@@ -102,16 +100,16 @@ static const char pszAtariLogo[] = "draw Atari Logo";
 static const char pszSTbook[] = "disable MCU access on ST-Book";
 static const char pszNoSparrowHw[] = "disable Sparrow hardware access";
 
-//static Uint8 pRtsOpcode[] = { 0x4E, 0x75 };  /* 0x4E75 = RTS */
-static const Uint8 pNopOpcodes[] = { 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71,
+//static uint8_t pRtsOpcode[] = { 0x4E, 0x75 };  /* 0x4E75 = RTS */
+static const uint8_t pNopOpcodes[] = { 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71,
         0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71,
         0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71, 0x4E, 0x71 };  /* 0x4E71 = NOP */
-static const Uint8 pMouseOpcode[] = { 0xD3, 0xC1 };  /* "ADDA.L D1,A1" (instead of "ADDA.W D1,A1") */
-static const Uint8 pRomCheckOpcode206[] = { 0x60, 0x00, 0x00, 0x98 };  /* BRA $e00894 */
-static const Uint8 pRomCheckOpcode207[] = { 0x60, 0x00, 0x00, 0x98 };  /* BRA $e00892 */
-static const Uint8 pRomCheckOpcode306[] = { 0x60, 0x00, 0x00, 0xB0 };  /* BRA $e00886 */
-static const Uint8 pRomCheckOpcode404[] = { 0x60, 0x00, 0x00, 0x94 };  /* BRA $e00746 */
-static const Uint8 pBraOpcode[] = { 0x60 };  /* 0x60XX = BRA */
+static const uint8_t pMouseOpcode[] = { 0xD3, 0xC1 };  /* "ADDA.L D1,A1" (instead of "ADDA.W D1,A1") */
+static const uint8_t pRomCheckOpcode206[] = { 0x60, 0x00, 0x00, 0x98 };  /* BRA $e00894 */
+static const uint8_t pRomCheckOpcode207[] = { 0x60, 0x00, 0x00, 0x98 };  /* BRA $e00892 */
+static const uint8_t pRomCheckOpcode306[] = { 0x60, 0x00, 0x00, 0xB0 };  /* BRA $e00886 */
+static const uint8_t pRomCheckOpcode404[] = { 0x60, 0x00, 0x00, 0x94 };  /* BRA $e00746 */
+static const uint8_t pBraOpcode[] = { 0x60 };  /* 0x60XX = BRA */
 
 /*
  * Routine for drawing the Atari logo.
@@ -119,7 +117,7 @@ static const Uint8 pBraOpcode[] = { 0x60 };  /* 0x60XX = BRA */
  * We cannot use the vdi yet (the screen workstation has not yet been opened),
  * but we can take into account extended VDI modes.
  */
-static const Uint8 pAtariLogo[] = {
+static const uint8_t pAtariLogo[] = {
 	0x3e, 0x3c, 0x00, 0x01,     /* move.w    #planes, d7; number will be patched below */
 	0x2c, 0x3c, 0, 0, 1, 64,    /* move.l    #linewidth, d6; number will be patched below */
 	0x22, 0x78, 0x04, 0x4e,     /* movea.l   (_v_bas_ad).w,a1 */
@@ -152,24 +150,24 @@ static const Uint8 pAtariLogo[] = {
 	0x4e, 0x71
 };
 
-static const Uint8 p060movep1[] = {	/* replace MOVEP */
+static const uint8_t p060movep1[] = {	/* replace MOVEP */
 	0x70, 0x0c,			/* moveq #12,d0 */
 	0x42, 0x30, 0x08, 0x00,		/* loop: clr.b 0,(d0,a0) */
 	0x55, 0x40,			/* subq  #2,d0 */
 	0x4a, 0x40,			/* tst.w d0 */
 	0x66, 0xf6,			/* bne.s loop */
 };
-static const Uint8 p060movep2[] = {		/* replace MOVEP */
+static const uint8_t p060movep2[] = {		/* replace MOVEP */
 	0x41, 0xf8, 0xfa, 0x26,			/* lea    0xfffffa26.w,a0 */
 	0x20, 0xfc, 0x00, 0x00, 0x00, 0x88,	/* move.l #$00000088,(a0)+ */
 	0x20, 0xbc, 0x00, 0x01, 0x00, 0x05,	/* move.l #$00010005,(a0) */
 	0x4a, 0x38, 0x0a, 0x87			/* tst.b  $a87.w */
 };
-static const Uint8 p060movep3_1[] = {		/* replace MOVEP */
+static const uint8_t p060movep3_1[] = {		/* replace MOVEP */
 	0x4e, 0xb9, 0x00, 0xe7, 0xf0, 0x00,	/* jsr     $e7f000 */
 	0x4e, 0x71				/* nop */
 };
-static const Uint8 p060movep3_2[] = {		/* replace MOVEP $28(a2),d7 */
+static const uint8_t p060movep3_2[] = {		/* replace MOVEP $28(a2),d7 */
 
 	0x00, 0x7c, 0x07, 0x00,			/* ori       #$700,sr */
 	0x1e, 0x2a, 0x00, 0x28,			/* move.b    $28(a2),d7 */
@@ -182,10 +180,10 @@ static const Uint8 p060movep3_2[] = {		/* replace MOVEP $28(a2),d7 */
 	0x4e, 0x75				/* rts */
 };
 
-static const Uint8 pFalconExtraRAM_1[] = {
+static const uint8_t pFalconExtraRAM_1[] = {
 	0x4e, 0xb9, 0x00, 0xe7, 0xf1, 0x00	/* jsr       $e7f100 */
 };
-static const Uint8 pFalconExtraRAM_2[] = {	/* call maddalt() to declare the extra RAM */
+static const uint8_t pFalconExtraRAM_2[] = {	/* call maddalt() to declare the extra RAM */
 	0x20, 0x38, 0x05, 0xa4,			/* move.l    $05a4.w,d0 */
 	0x67, 0x18,				/* beq.s     $ba2d2 */
 	0x04, 0x80, 0x01, 0x00, 0x00, 0x00,	/* subi.l    #$1000000,d0 */
@@ -726,7 +724,7 @@ void TOS_MemorySnapShot_Capture(bool bSave)
  *
  * Set logpatch_addr if patch for that is needed.
  */
-static void TOS_FixRom(Uint32 *logopatch_addr)
+static void TOS_FixRom(uint32_t *logopatch_addr)
 {
 	int nGoodPatches, nBadPatches;
 	short TosCountry;
@@ -750,12 +748,9 @@ static void TOS_FixRom(Uint32 *logopatch_addr)
 		if (pPatch->Version == TosVersion
 		    && (pPatch->Country == TosCountry || pPatch->Country == -1))
 		{
-#if ENABLE_WINUAE_CPU
 			bool use_mmu = ConfigureParams.System.bMMU &&
 			               ConfigureParams.System.nCpuLevel == 3;
-#else
-			bool use_mmu = false;
-#endif
+
 			/* Only apply the patch if it is really needed: */
 			if (pPatch->Flags == TP_ALWAYS
 			    || (pPatch->Flags == TP_HDIMAGE_OFF && !bAcsiEmuOn
@@ -812,9 +807,7 @@ static void TOS_CheckSysConfig(void)
 {
 	int oldCpuLevel = ConfigureParams.System.nCpuLevel;
 	MACHINETYPE oldMachineType = ConfigureParams.System.nMachineType;
-#if ENABLE_WINUAE_CPU
 	FPUTYPE oldFpuType = ConfigureParams.System.n_FPUType;
-#endif
 
 	if (((TosVersion == 0x0106 || TosVersion == 0x0162) && ConfigureParams.System.nMachineType != MACHINE_STE)
 	    || (TosVersion == 0x0162 && ConfigureParams.System.nCpuLevel != 0))
@@ -895,7 +888,6 @@ static void TOS_CheckSysConfig(void)
 		             " ==> Switching to 68020 mode now.\n");
 		ConfigureParams.System.nCpuLevel = 2;
 	}
-#if ENABLE_WINUAE_CPU
 	else if ((TosVersion & 0x0f00) == 0x0300 &&
 	         (ConfigureParams.System.nCpuLevel < 2 || ConfigureParams.System.n_FPUType == FPU_NONE))
 	{
@@ -904,19 +896,10 @@ static void TOS_CheckSysConfig(void)
 		ConfigureParams.System.nCpuLevel = 3;
 		ConfigureParams.System.n_FPUType = FPU_68882;
 	}
-#else
-	else if ((TosVersion & 0x0f00) == 0x0300 && ConfigureParams.System.nCpuLevel < 3)
-	{
-		Log_AlertDlg(LOG_ERROR, "TOS versions 3.0x require a CPU >= 68020 with FPU.\n"
-		             " ==> Switching to 68030 mode with FPU now.\n");
-		ConfigureParams.System.nCpuLevel = 3;
-	}
-#endif
 
 	/* TOS version triggered changes? */
 	if (ConfigureParams.System.nMachineType != oldMachineType)
 	{
-#if ENABLE_WINUAE_CPU
 		if (Config_IsMachineTT())
 		{
 			ConfigureParams.System.bCompatibleFPU = true;
@@ -929,14 +912,13 @@ static void TOS_CheckSysConfig(void)
 			ConfigureParams.System.bAddressSpace24 = true;
 			ConfigureParams.System.bMMU = false;
 		}
-#endif
 		M68000_CheckCpuSettings();
+
+		/* Ensure MMU has default values when changing machine's type before calling memory_init() later */
+		STMemory_Reset ( true );
 	}
 	else if (ConfigureParams.System.nCpuLevel != oldCpuLevel
-#if ENABLE_WINUAE_CPU
-		 || ConfigureParams.System.n_FPUType != oldFpuType
-#endif
-		)
+		 || ConfigureParams.System.n_FPUType != oldFpuType)
 	{
 		M68000_CheckCpuSettings();
 	}
@@ -976,14 +958,14 @@ static uint8_t *TOS_LoadImage(void)
 	TosSize = nFileSize;
 
 	/* Check for RAM TOS images first: */
-	if (SDL_SwapBE32(*(Uint32 *)pTosFile) == 0x46FC2700)
+	if (be_swap32(*(uint32_t *)pTosFile) == 0x46FC2700)
 	{
 		int nRamTosLoaderSize;
 		Log_Printf(LOG_WARN, "Detected a RAM TOS - this will probably not work very well!\n");
 		/* RAM TOS images have a 256 bytes loader function before the real image
 		 * starts (34 bytes for TOS 4.92). Since we directly copy the image to the right
 		 * location later, we simply skip this additional header here: */
-		if (SDL_SwapBE32(*(Uint32 *)(pTosFile+34)) == 0x602E0492)
+		if (be_swap32(*(uint32_t *)(pTosFile+34)) == 0x602E0492)
 			nRamTosLoaderSize = 0x22;
 		else
 			nRamTosLoaderSize = 0x100;
@@ -997,20 +979,20 @@ static uint8_t *TOS_LoadImage(void)
 	}
 
 	/* Check for EmuTOS ... (0x45544F53 = 'ETOS') */
-	bIsEmuTOS = (SDL_SwapBE32(*(Uint32 *)&pTosFile[0x2c]) == 0x45544F53);
+	bIsEmuTOS = (be_swap32(*(uint32_t *)&pTosFile[0x2c]) == 0x45544F53);
 	if (bIsEmuTOS)
 	{
 		/* The magic value 'OSXH' indicates an extended header */
-		if (SDL_SwapBE32(*(Uint32 *)&pTosFile[0x34]) == 0x4F535848)
-			EmuTosVersion = SDL_SwapBE32(*(Uint32 *)&pTosFile[0x3c]);
+		if (be_swap32(*(uint32_t *)&pTosFile[0x34]) == 0x4F535848)
+			EmuTosVersion = be_swap32(*(uint32_t *)&pTosFile[0x3c]);
 		else
 			EmuTosVersion = 0;	/* Older than 1.0 */
 	}
 
 	/* Now, look at start of image to find Version number and address */
-	TosVersion = SDL_SwapBE16(*(Uint16 *)&pTosFile[2]);
-	TosAddress = SDL_SwapBE32(*(Uint32 *)&pTosFile[8]);
-	if (TosVersion == 0x206 && SDL_SwapBE16(*(Uint16 *)&pTosFile[30]) == 0x186A)
+	TosVersion = be_swap16(*(uint16_t *)&pTosFile[2]);
+	TosAddress = be_swap32(*(uint32_t *)&pTosFile[8]);
+	if (TosVersion == 0x206 && be_swap16(*(uint16_t *)&pTosFile[30]) == 0x186A)
 		TosVersion = 0x208;
 
 	/* Check for reasonable TOS version: */
@@ -1023,13 +1005,14 @@ static uint8_t *TOS_LoadImage(void)
 		 * just for fun. */
 		TosAddress = 0xfc0000;
 	}
-	else if (TosVersion < 0x100 || TosVersion >= 0x500 || TosSize > 1024*1024L
+	else if (TosVersion < 0x100 || TosVersion >= 0x700 || TosSize > 1024*1024L
 	         || (TosAddress == 0xfc0000 && TosSize > 224*1024L)
 	         || (bRamTosImage && TosAddress + TosSize > STRamEnd)
 	         || (!bRamTosImage && TosAddress != 0xe00000 && TosAddress != 0xfc0000))
 	{
 		Log_AlertDlg(LOG_FATAL, "Your TOS image seems not to be a valid TOS ROM file!\n"
-		             "(TOS version %x, address $%x)", TosVersion, TosAddress);
+		             "(TOS version %x.%02x, address $%x)",
+			     TosVersion >> 8, TosVersion & 0xff, TosAddress);
 		free(pTosFile);
 		return NULL;
 	}
@@ -1038,10 +1021,9 @@ static uint8_t *TOS_LoadImage(void)
 	 * 512k EmuTOS declares itself as TOS 2.x, but it can handle
 	 * all machine types, so it can & needs to be skipped here
 	 */
-	if (!(bIsEmuTOS && TosSize == 512*1024))
+	if (!bIsEmuTOS || TosSize < 512 * 1024)
 		TOS_CheckSysConfig();
 
-#if ENABLE_WINUAE_CPU
 	/* 32-bit addressing is supported only by CPU >= 68020, TOS v3, TOS v4 and EmuTOS */
 	if (ConfigureParams.System.nCpuLevel < 2 || (TosVersion < 0x0300 && !bIsEmuTOS))
 	{
@@ -1073,7 +1055,6 @@ static uint8_t *TOS_LoadImage(void)
 			break;
 		}
 	}
-#endif
 
 	return pTosFile;
 }
@@ -1122,7 +1103,8 @@ static uint8_t *TOS_FakeRomForTesting(void)
 int TOS_InitImage(void)
 {
 	uint8_t *pTosFile = NULL;
-	Uint32 logopatch_addr = 0;
+	uint32_t logopatch_addr = 0;
+	uint16_t osconf, countrycode;
 
 	bTosImageLoaded = false;
 
@@ -1199,6 +1181,21 @@ int TOS_InitImage(void)
 		Log_Printf(LOG_DEBUG, "Skipped TOS patches.\n");
 	}
 
+	/* whether to override EmuTOS country code */
+	osconf = STMemory_ReadWord(TosAddress+0x1C);
+	countrycode = osconf >> 1;
+	if (bIsEmuTOS && countrycode == TOS_LANG_ALL && !NvRam_Present() &&
+	    ConfigureParams.Keyboard.nCountryCode != TOS_LANG_UNKNOWN)
+	{
+		countrycode = ConfigureParams.Keyboard.nCountryCode;
+		/* low bit: us -> NTSC (0), any other -> PAL (1) */
+		osconf = (countrycode << 1) | (countrycode?1:0);
+		STMemory_WriteWord(TosAddress+0x1C, osconf);
+		Log_Printf(LOG_WARN, "=> EmuTOS country code: %d (%s), %s\n",
+			   countrycode, TOS_LanguageName(countrycode),
+			   (osconf & 1) ? "PAL" : "NTSC");
+	}
+
 	/*
 	 * patch some values into the "Draw logo" patch.
 	 * Needs to be called after final VDI resolution has been determined.
@@ -1241,4 +1238,97 @@ int TOS_InitImage(void)
 
 	bTosImageLoaded = true;
 	return 0;
+}
+
+static const struct {
+	uint8_t value;
+	const char *code;
+	const char *name;
+} countries[] = {
+	{ TOS_LANG_US,    "us",    "USA" },
+	{ TOS_LANG_DE,    "de",    "Germany" },
+	{ TOS_LANG_FR,    "fr",    "France" },
+	{ TOS_LANG_UK,    "uk",    "United Kingdom" },
+	{ TOS_LANG_ES,    "es",    "Spain" },
+	{ TOS_LANG_IT,    "it",    "Italy" },
+	{ TOS_LANG_SE,    "se",    "Sweden" },
+	{ TOS_LANG_CH_FR, "ch_fr", "Switzerland (French)" },
+	{ TOS_LANG_CH_DE, "ch_de", "Switzerland (German)" },
+	{ TOS_LANG_TR,    "tr",    "Turkey" },
+	{ TOS_LANG_FI,    "fi",    "Finland" },
+	{ TOS_LANG_NO,    "no",    "Norway" },
+	{ TOS_LANG_DK,    "dk",    "Denmark" },
+	{ TOS_LANG_SA,    "sa",    "Saudi Arabia" },
+	{ TOS_LANG_NL,    "nl",    "Holland" },
+	{ TOS_LANG_CS,    "cs",    "Czech Republic" },
+	{ TOS_LANG_HU,    "hu",    "Hungary" },
+	{ TOS_LANG_PL,    "pl",    "Poland" },
+	{ TOS_LANG_RU,    "ru",    "Russia" },
+	{ TOS_LANG_GR,    "gr",    "Greece" },
+	{ TOS_LANG_RO,    "ro",    "Romania" },
+};
+
+/**
+ * TOS_ValidCountryCode: returns parsed country code if
+ * it's recognized, otherwise TOS_LANG_UNKNOWN is returned.
+ */
+int TOS_ParseCountryCode(const char *code)
+{
+	for (int i = 0; i < ARRAY_SIZE(countries); i++) {
+		if (strcmp(code, countries[i].code) == 0) {
+			return countries[i].value;
+		}
+	}
+	return TOS_LANG_UNKNOWN;
+}
+
+void TOS_ShowCountryCodes(void)
+{
+	fprintf(stderr, "\nTOS v4 supports:\n");
+	for (int i = 0; i < ARRAY_SIZE(countries); i++) {
+		if (countries[i].value == TOS_LANG_CH_FR)
+			fprintf(stderr, "\nEmuTOS 1024k supports also:\n");
+		if (countries[i].value == TOS_LANG_RO)
+			fprintf(stderr, "\nEmuTOS 1024k >1.2.1 also:\n");
+		fprintf(stderr, "- %s : %s\n",
+			countries[i].code, countries[i].name);
+	}
+}
+
+/**
+ * TOS_DefaultLanguage: return TOS country code matching LANG
+ * environment variable. Supports LANG formats: "uk", "en_UK.*"
+ */
+int TOS_DefaultLanguage(void)
+{
+	int len;
+	const char *lang = getenv("LANG");
+	if (!lang)
+		return TOS_LANG_UNKNOWN;
+
+	len = strlen(lang);
+	if (len == 2)
+		return TOS_ParseCountryCode(lang);
+
+	if (len >= 5 && lang[2] == '_') {
+		char cc[3];
+		cc[0] = tolower(lang[3]);
+		cc[1] = tolower(lang[4]);
+		cc[2] = '\0';
+		return TOS_ParseCountryCode(cc);
+	}
+	return TOS_LANG_UNKNOWN;
+}
+
+/**
+ * TOS_LanguageName: return name for given country code
+ */
+const char *TOS_LanguageName(int code)
+{
+	for (int i = 0; i < ARRAY_SIZE(countries); i++) {
+		if (code == countries[i].value) {
+			return countries[i].name;
+		}
+	}
+	return "Unknown";
 }

@@ -44,6 +44,7 @@ const char Main_fileid[] = "Hatari main.c";
 #include "reset.h"
 #include "resolution.h"
 #include "rs232.h"
+#include "rtc.h"
 #include "scc.h"
 #include "screen.h"
 #include "sdlgui.h"
@@ -72,13 +73,17 @@ const char Main_fileid[] = "Hatari main.c";
 #include "gui-win/opencon.h"
 #endif
 
+#ifdef EMSCRIPTEN
+#include "emscripten.h"
+#endif
+
 bool bQuitProgram = false;                /* Flag to quit program cleanly */
 static int nQuitValue;                    /* exit value */
 
-static Uint32 nRunVBLs;                   /* Whether and how many VBLS to run before exit */
-static Uint32 nFirstMilliTick;            /* Ticks when VBL counting started */
-static Uint32 nVBLCount;                  /* Frame count */
-static int nVBLSlowdown = 1;		  /* host VBL wait multiplier */
+static uint32_t nRunVBLs;                 /* Whether and how many VBLS to run before exit */
+static uint32_t nFirstMilliTick;          /* Ticks when VBL counting started */
+static uint32_t nVBLCount;                /* Frame count */
+static int nVBLSlowdown = 1;              /* host VBL wait multiplier */
 
 static bool bEmulationActive = true;      /* Run emulation when started */
 static bool bAccurateDelays;              /* Host system has an accurate SDL_Delay()? */
@@ -97,7 +102,7 @@ static bool bAllowMouseWarp = true;       /* disabled when Hatari window loses m
 #if HAVE_SYS_TIMES_H
 #include <unistd.h>
 #include <sys/times.h>
-static Uint32 Main_GetTicks(void)
+static uint32_t Main_GetTicks(void)
 {
 	static unsigned int ticks_to_msec = 0;
 	struct tms fields;
@@ -128,16 +133,16 @@ static Uint32 Main_GetTicks(void)
  * return of SDL_GetTicks in micro sec.
  */
 
-static Sint64	Time_GetTicks ( void )
+static int64_t Time_GetTicks(void)
 {
-	Sint64	ticks_micro;
+	int64_t ticks_micro;
 
 #if HAVE_GETTIMEOFDAY
 	struct timeval	now;
 	gettimeofday ( &now , NULL );
-	ticks_micro = (Sint64)now.tv_sec * 1000000 + now.tv_usec;
+	ticks_micro = (int64_t)now.tv_sec * 1000000 + now.tv_usec;
 #else
-	ticks_micro = (Sint64)SDL_GetTicks() * 1000;		/* milli sec -> micro sec */
+	ticks_micro = (int64_t)SDL_GetTicks() * 1000;		/* milli sec -> micro sec */
 #endif
 
 	return ticks_micro;
@@ -151,8 +156,11 @@ static Sint64	Time_GetTicks ( void )
  * (which is portable, but less accurate as is uses milli-seconds)
  */
 
-static void	Time_Delay ( Sint64 ticks_micro )
+static void Time_Delay(int64_t ticks_micro)
 {
+#ifdef EMSCRIPTEN
+	emscripten_sleep((uint32_t)(ticks_micro / 1000));	/* micro sec -> milli sec */
+#else
 #if HAVE_NANOSLEEP
 	struct timespec	ts;
 	int		ret;
@@ -165,7 +173,8 @@ static void	Time_Delay ( Sint64 ticks_micro )
                 ret = nanosleep(&ts, &ts);
 	} while ( ret && ( errno == EINTR ) );		/* keep on sleeping if we were interrupted */
 #else
-	SDL_Delay ( (Uint32)(ticks_micro / 1000) ) ;	/* micro sec -> milli sec */
+	SDL_Delay((uint32_t)(ticks_micro / 1000)) ;	/* micro sec -> milli sec */
+#endif
 #endif
 }
 
@@ -206,7 +215,7 @@ bool Main_PauseEmulation(bool visualize)
 
 		if (bGrabMouse && !bInFullScreen)
 			/* Un-grab mouse pointer in windowed mode */
-			SDL_WM_GrabInput(SDL_GRAB_OFF);
+			SDL_SetRelativeMouseMode(false);
 	}
 	return true;
 }
@@ -231,7 +240,7 @@ bool Main_UnPauseEmulation(void)
 
 	if (bGrabMouse)
 		/* Grab mouse pointer again */
-		SDL_WM_GrabInput(SDL_GRAB_ON);
+		SDL_SetRelativeMouseMode(true);
 	return true;
 }
 
@@ -281,7 +290,7 @@ void Main_SetQuitValue(int exitval)
  *
  * If zero value given instead, returns earlier set VBL count.
  */
-Uint32 Main_SetRunVBLs(Uint32 vbls)
+uint32_t Main_SetRunVBLs(uint32_t vbls)
 {
 	if (!vbls)
 		return nRunVBLs;
@@ -318,10 +327,10 @@ const char* Main_SetVBLSlowdown(int factor)
  */
 void Main_WaitOnVbl(void)
 {
-	Sint64 CurrentTicks;
-	static Sint64 DestTicks = 0;
-	Sint64 FrameDuration_micro;
-	Sint64 nDelay;
+	int64_t CurrentTicks;
+	static int64_t DestTicks = 0;
+	int64_t FrameDuration_micro;
+	int64_t nDelay;
 
 	nVBLCount++;
 	if (nRunVBLs &&	nVBLCount >= nRunVBLs)
@@ -331,7 +340,7 @@ void Main_WaitOnVbl(void)
 		exit(0);
 	}
 
-//	FrameDuration_micro = (Sint64) ( 1000000.0 / nScreenRefreshRate + 0.5 );	/* round to closest integer */
+//	FrameDuration_micro = (int64_t) ( 1000000.0 / nScreenRefreshRate + 0.5 );	/* round to closest integer */
 	FrameDuration_micro = ClocksTimings_GetVBLDuration_micro ( ConfigureParams.System.nMachineType , nScreenRefreshRate );
 	FrameDuration_micro *= nVBLSlowdown;
 	CurrentTicks = Time_GetTicks();
@@ -365,6 +374,9 @@ void Main_WaitOnVbl(void)
 		}
 		/* Only update DestTicks for next VBL */
 		DestTicks = CurrentTicks + FrameDuration_micro;
+		#ifdef EMSCRIPTEN
+		emscripten_sleep(0);
+		#endif
 		return;
 	}
 
@@ -451,11 +463,8 @@ void Main_WarpMouse(int x, int y, bool restore)
 		return;
 	if (!bAllowMouseWarp)
 		return;
-#if WITH_SDL2
+
 	SDL_WarpMouseInWindow(sdlWindow, x, y);
-#else
-	SDL_WarpMouse(x, y);
-#endif
 	bIgnoreNextMouseMotion = true;
 }
 
@@ -549,12 +558,10 @@ void Main_EventHandler(void)
 			break;
 
 		 case SDL_KEYDOWN:
-#if WITH_SDL2
 			if (event.key.repeat) {
 				bContinueProcessing = true;
 				break;
 			}
-#endif
 			Keymap_KeyDown(&event.key.keysym);
 			break;
 
@@ -582,18 +589,6 @@ void Main_EventHandler(void)
 				/* Start double-click sequence in emulation time */
 				Keyboard.LButtonDblClk = 1;
 			}
-#if !WITH_SDL2
-			else if (event.button.button == SDL_BUTTON_WHEELDOWN)
-			{
-				/* Simulate pressing the "cursor down" key */
-				IKBD_PressSTKey(0x50, true);
-			}
-			else if (event.button.button == SDL_BUTTON_WHEELUP)
-			{
-				/* Simulate pressing the "cursor up" key */
-				IKBD_PressSTKey(0x48, true);
-			}
-#endif
 			break;
 
 		 case SDL_MOUSEBUTTONUP:
@@ -605,21 +600,8 @@ void Main_EventHandler(void)
 			{
 				Keyboard.bRButtonDown &= ~BUTTON_MOUSE;
 			}
-#if !WITH_SDL2
-			else if (event.button.button == SDL_BUTTON_WHEELDOWN)
-			{
-				/* Simulate releasing the "cursor down" key */
-				IKBD_PressSTKey(0x50, false);
-			}
-			else if (event.button.button == SDL_BUTTON_WHEELUP)
-			{
-				/* Simulate releasing the "cursor up" key */
-				IKBD_PressSTKey(0x48, false);
-			}
-#endif
 			break;
 
-#if WITH_SDL2
 		 case SDL_MOUSEWHEEL:
 			/* Simulate cursor keys on mouse wheel events */
 			if (event.wheel.x > 0)
@@ -661,14 +643,14 @@ void Main_EventHandler(void)
 				/* Note: any changes here should most likely
 				 * be done also in sdlgui.c::SDLGui_DoDialog()
 				 */
-				SDL_UpdateRect(sdlscrn, 0, 0, 0, 0);
+				Screen_UpdateRect(sdlscrn, 0, 0, 0, 0);
 				break;
 			case SDL_WINDOWEVENT_SIZE_CHANGED:
 				/* internal & external window size changes */
 				Screen_SetTextureScale(sdlscrn->w, sdlscrn->h,
 						       event.window.data1,
 						       event.window.data2, false);
-				SDL_UpdateRect(sdlscrn, 0, 0, 0, 0);
+				Screen_UpdateRect(sdlscrn, 0, 0, 0, 0);
 				break;
 				/* mouse & keyboard focus */
 			case SDL_WINDOWEVENT_ENTER:
@@ -680,15 +662,6 @@ void Main_EventHandler(void)
 				bAllowMouseWarp = false;
 				break;
 			}
-#else /* !WITH_SDL2 */
-		case SDL_ACTIVEEVENT:
-			Log_Printf(LOG_DEBUG, "SDL1 active event 0x%x = %d\n",
-				   event.active.state, event.active.gain);
-			if (event.active.gain)
-				bAllowMouseWarp = true;
-			else
-				bAllowMouseWarp = false;
-#endif /* !WITH_SDL2 */
 			bContinueProcessing = true;
 			break;
 
@@ -707,17 +680,10 @@ void Main_EventHandler(void)
  */
 void Main_SetTitle(const char *title)
 {
-#if WITH_SDL2
 	if (title)
 		SDL_SetWindowTitle(sdlWindow, title);
 	else
 		SDL_SetWindowTitle(sdlWindow, PROG_NAME);
-#else
-	if (title)
-		SDL_WM_SetCaption(title, "Hatari");
-	else
-		SDL_WM_SetCaption(PROG_NAME, "Hatari");
-#endif
 }
 
 /*-----------------------------------------------------------------------*/
@@ -751,7 +717,7 @@ static void Main_Init(void)
 
 	/* Init SDL's video subsystem. Note: Audio subsystem
 	   will be initialized later (failure not fatal). */
-	if (SDL_Init(SDL_INIT_VIDEO | Opt_GetNoParachuteFlag()) < 0)
+	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 	{
 		fprintf(stderr, "ERROR: could not initialize the SDL library:\n %s\n", SDL_GetError() );
 		exit(-1);
@@ -817,7 +783,8 @@ static void Main_Init(void)
 	IoMem_Init();
 	NvRam_Init();
 	Sound_Init();
-	
+	Rtc_Init();
+
 	/* done as last, needs CPU & DSP running... */
 	DebugUI_Init();
 }
@@ -856,6 +823,7 @@ static void Main_UnInit(void)
 	SDL_Quit();
 
 	/* Close debug log file */
+	DebugUI_UnInit();
 	Log_UnInit();
 
 	Paths_UnInit();
@@ -872,8 +840,11 @@ static void Main_LoadInitialConfig(void)
 {
 	char *psGlobalConfig;
 
-	psGlobalConfig = malloc(FILENAME_MAX);
-	if (psGlobalConfig && !getenv("HATARI_TEST"))
+	if (getenv("HATARI_TEST"))
+		psGlobalConfig = NULL;
+	else
+		psGlobalConfig = malloc(FILENAME_MAX);
+	if (psGlobalConfig)
 	{
 		File_MakePathBuf(psGlobalConfig, FILENAME_MAX, CONFDIR,
 		                 "hatari", "cfg");
@@ -885,6 +856,8 @@ static void Main_LoadInitialConfig(void)
 
 	/* Now try the users configuration file */
 	Configuration_Load(NULL);
+	if (ConfigureParams.Keyboard.nLanguage == TOS_LANG_UNKNOWN)
+		ConfigureParams.Keyboard.nLanguage = TOS_DefaultLanguage();
 }
 
 /*-----------------------------------------------------------------------*/
@@ -903,7 +876,7 @@ static void Main_StatusbarSetup(void)
 	};
 	const char *name;
 	bool named;
-	SDLKey key;
+	SDL_Keycode key;
 	int i;
 
 	named = false;
@@ -1001,7 +974,7 @@ int main(int argc, char *argv[])
 		Avi_StartRecording ( ConfigureParams.Video.AviRecordFile , ConfigureParams.Screen.bCrop ,
 			ConfigureParams.Video.AviRecordFps == 0 ?
 				ClocksTimings_GetVBLPerSec ( ConfigureParams.System.nMachineType , nScreenRefreshRate ) :
-				(Uint32)ConfigureParams.Video.AviRecordFps << CLOCKS_TIMINGS_SHIFT_VBL ,
+				ClocksTimings_GetVBLPerSec ( ConfigureParams.System.nMachineType , ConfigureParams.Video.AviRecordFps ) ,
 			1 << CLOCKS_TIMINGS_SHIFT_VBL ,
 			ConfigureParams.Video.AviRecordVcodec );
 

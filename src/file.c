@@ -27,13 +27,14 @@ const char File_fileid[] = "Hatari file.c";
 
 #include "dialog.h"
 #include "file.h"
-#include "createBlankImage.h"
 #include "str.h"
 #include "zip.h"
-#include "log.h"
 
 #ifdef HAVE_FLOCK
 # include <sys/file.h>
+#endif
+#if defined(__APPLE__)
+#include <sys/disk.h>
 #endif
 
 /*-----------------------------------------------------------------------*/
@@ -186,9 +187,9 @@ bool File_DoesFileNameEndWithSlash(char *pszFileName)
  * or NULL for error. If pFileSize is non-NULL, read file size is set to that.
  */
 #if HAVE_LIBZ
-Uint8 *File_ZlibRead(const char *pszFileName, long *pFileSize)
+uint8_t *File_ZlibRead(const char *pszFileName, long *pFileSize)
 {
-	Uint8 *pFile = NULL;
+	uint8_t *pFile = NULL;
 	gzFile hGzFile;
 	long nFileSize = 0;
 
@@ -231,9 +232,9 @@ Uint8 *File_ZlibRead(const char *pszFileName, long *pFileSize)
  * unmodified, or NULL for error.  If pFileSize is non-NULL, read
  * file size is set to that.
  */
-Uint8 *File_ReadAsIs(const char *pszFileName, long *pFileSize)
+uint8_t *File_ReadAsIs(const char *pszFileName, long *pFileSize)
 {
-	Uint8 *pFile = NULL;
+	uint8_t *pFile = NULL;
 	long FileSize = 0;
 	FILE *hDiskFile;
 
@@ -271,10 +272,10 @@ Uint8 *File_ReadAsIs(const char *pszFileName, long *pFileSize)
  * ZIP, first file in it is read).  If pFileSize is non-NULL, read
  * file size is set to that.
  */
-Uint8 *File_Read(const char *pszFileName, long *pFileSize, const char * const ppszExts[])
+uint8_t *File_Read(const char *pszFileName, long *pFileSize, const char * const ppszExts[])
 {
 	char *filepath = NULL;
-	Uint8 *pFile = NULL;
+	uint8_t *pFile = NULL;
 	long FileSize = 0;
 
 	/* Does the file exist? If not, see if can scan for other extensions and try these */
@@ -318,7 +319,7 @@ Uint8 *File_Read(const char *pszFileName, long *pFileSize, const char * const pp
  * Save file to disk, return FALSE if errors
  * If built with ZLib support + file name ends with *.gz, compress it first
  */
-bool File_Save(const char *pszFileName, const Uint8 *pAddress, size_t Size, bool bQueryOverwrite)
+bool File_Save(const char *pszFileName, const uint8_t *pAddress, size_t Size, bool bQueryOverwrite)
 {
 	bool bRet = false;
 
@@ -378,6 +379,31 @@ off_t File_Length(const char *pszFileName)
 	hDiskFile = fopen(pszFileName, "rb");
 	if (hDiskFile!=NULL)
 	{
+#if defined(__APPLE__)
+		/* special handling for character/block devices on macOS, where the
+		   seeking method doesn't determine the size */
+		struct stat buf;
+		unsigned long blocksize;
+		unsigned long numblocks;
+		int fd = fileno(hDiskFile);
+
+		if ((fstat(fd, &buf) == 0) &&
+		    (S_ISBLK(buf.st_mode) || S_ISCHR(buf.st_mode)))
+		    /* both S_ISBLK() and S_ISCHR() is needed, because /dev/rdisk?
+		       devices in macOS identify themselves as character devices,
+		       not block devices, meanwhile /dev/disk?, which are a lot
+		       slower and buffered, say they are block devices...
+		       Thanks, Apple!
+		       This hack allows either of them to be used by Hatari. */
+		{
+			if ((ioctl(fd, DKIOCGETBLOCKSIZE, &blocksize) == 0) &&
+			    (ioctl(fd, DKIOCGETBLOCKCOUNT, &numblocks) == 0))
+			{
+				FileSize = blocksize * numblocks;
+				return FileSize;
+			}
+		}
+#endif
 		fseeko(hDiskFile, 0, SEEK_END);
 		FileSize = ftello(hDiskFile);
 		fclose(hDiskFile);
@@ -491,6 +517,17 @@ char * File_FindPossibleExtFileName(const char *pszFileName, const char * const 
 	return NULL;
 }
 
+/*-----------------------------------------------------------------------*/
+/**
+ * Return basename of given path (remove directory names)
+ */
+const char *File_Basename(const char *path)
+{
+	const char *basename;
+	if ((basename = strrchr(path, PATHSEP)))
+		return basename + 1;
+	return path;
+}
 
 /*-----------------------------------------------------------------------*/
 /**
@@ -915,6 +952,9 @@ void File_MakeValidPathName(char *pPathName)
 	struct stat dirstat;
 	char *pLastSlash;
 
+	if (!pPathName[0])
+		return;		/* Avoid writing to zero-size buffers */
+
 	do
 	{
 		/* Check for a valid path */
@@ -931,12 +971,9 @@ void File_MakeValidPathName(char *pPathName)
 		}
 		else
 		{
-			if (pPathName[0])
-			{
-				/* point to root */
-				pPathName[0] = PATHSEP;
-				pPathName[1] = 0;
-			}
+			/* point to root */
+			pPathName[0] = PATHSEP;
+			pPathName[1] = 0;
 			return;
 		}
 	}
@@ -955,15 +992,23 @@ void File_MakeValidPathName(char *pPathName)
  */
 void File_PathShorten(char *path, int dirs)
 {
-	int i, n = 0;
+	int n = 0;
 	/* ignore last char, it may or may not be '/' */
-	i = strlen(path)-1;
+	int i = strlen(path) - 1;
+#ifdef WIN32
+	int len = i;
+#endif
 	assert(i >= 0);
 	while(i > 0 && n < dirs)
 	{
 		if (path[--i] == PATHSEP)
 			n++;
 	}
+#ifdef WIN32
+	/* if we have only drive with root, don't shorten it more*/
+	if (len == 2 && n == 0 && path[1] == ':' && path[2] == PATHSEP)
+		return;
+#endif
 	if (path[i] == PATHSEP)
 	{
 		path[i+1] = '\0';
@@ -1021,7 +1066,7 @@ static TCHAR szTempFileName[MAX_PATH];
 /**
  * Get temporary filename for Windows
  */
-char* WinTmpFile(void)
+static char* WinTmpFile(void)
 {
 	DWORD dwRetVal = 0;
 	UINT uRetVal   = 0;
@@ -1032,7 +1077,7 @@ char* WinTmpFile(void)
 	                       lpTempPathBuffer);	/* buffer for path */
 	if (dwRetVal > MAX_PATH || (dwRetVal == 0))
 	{
-		Log_Printf(LOG_ERROR, "GetTempPath failed.\n");
+		fprintf(stderr, "GetTempPath failed.\n");
 		return NULL;
 	}
 
@@ -1043,9 +1088,39 @@ char* WinTmpFile(void)
 	                          szTempFileName);	/* buffer for name */
 	if (uRetVal == 0)
 	{
-		Log_Printf(LOG_ERROR, "GetTempFileName failed.\n");
+		fprintf(stderr, "GetTempFileName failed.\n");
 		return NULL;
 	}
 	return (char*)szTempFileName;
 }
 #endif
+
+/**
+ * Open a temporary file. This is a wrapper for tmpfile() that can be used
+ * on Windows, too. If *psFileName gets set by this function, the caller
+ * should delete the file manually when it is not needed anymore.
+ */
+FILE *File_OpenTempFile(char **psFileName)
+{
+	FILE *fh;
+	char *psTmpName = NULL;
+
+	fh = tmpfile();            /* Open temporary file */
+
+#if defined(WIN32)
+	if (!fh)
+	{
+		/* Unfortunately tmpfile() needs administrative privileges on
+		 * Windows, so if it failed, let's work around this issue. */
+		psTmpName = WinTmpFile();
+		fh = fopen(psTmpName, "w+b");
+	}
+#endif
+
+	if (psFileName)
+	{
+		*psFileName = psTmpName;
+	}
+
+	return fh;
+}

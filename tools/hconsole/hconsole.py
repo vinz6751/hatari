@@ -5,7 +5,7 @@
 # devices and changing Hatari command line options (even for things you
 # cannot change from the UI) from the console while Hatari is running.
 #
-# Copyright (C) 2008-2020 by Eero Tamminen
+# Copyright (C) 2008-2021 by Eero Tamminen
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,15 +23,6 @@ import time
 import signal
 import socket
 import readline
-
-# Python v2:
-# - lacks Python v3 encoding arg for bytes()
-# - input() evaluates given string and fails on empty one
-if str is bytes:
-    def bytes(s, encoding):
-        return s
-    def input(prompt):
-        return raw_input(prompt)
 
 class Scancode:
     "Atari scancodes for keys without alphanumeric characters"
@@ -125,13 +116,13 @@ class Hatari:
         "check Hatari compatibility and return error string if it's not"
         print("Using following Hatari binary:")
         os.system("which %s" % self.hataribin)
-        error = True
+        error = "Hatari lacks '--control-socket' option (Windows?)"
         pipe = os.popen(self.hataribin + " -h")
         for line in pipe.readlines():
             if line.find("--addr24") >= 0:
                 self.winuae = True
             if line.find("--control-socket") >= 0:
-                error = False
+                error = None
                 break
         try:
             pipe.close()
@@ -324,7 +315,6 @@ class Tokens:
     "--bpp",
     "--disable-video",
     "--borders",
-    "--desktop-st",
     "--spec512",
     "--video-timing",
     "--desktop",
@@ -408,7 +398,6 @@ class Tokens:
     "--trace-file",
     "--parse",
     "--saveconfig",
-    "--no-parachute",
     "--cmd-fifo",
     "--log-file",
     "--log-level",
@@ -553,11 +542,11 @@ give help when you give them invalid input.
     def do_sleep(self, line):
         items = line.split()[1:]
         try:
-            secs = int(items[0])
+            secs = float(items[0])
         except:
-            secs = 0
-        if secs > 0:
-            print("Sleeping for %d secs..." % secs)
+            secs = -1.0
+        if secs > 0.0:
+            print("Sleeping for %g secs..." % secs)
             time.sleep(secs)
         else:
             print("usage: sleep <seconds>")

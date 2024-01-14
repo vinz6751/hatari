@@ -24,17 +24,19 @@ const char Log_fileid[] = "Hatari log.c";
 
 #include "main.h"
 #include "configuration.h"
+#include "console.h"
 #include "dialog.h"
 #include "log.h"
 #include "screen.h"
 #include "file.h"
 #include "vdi.h"
 #include "options.h"
+#include "str.h"
 
 int ExceptionDebugMask;
 
 typedef struct {
-	Uint64 flag;
+	uint64_t flag;
 	const char *name;
 } flagname_t;
 
@@ -60,103 +62,130 @@ static flagname_t ExceptionFlags[] = {
 
 #if ENABLE_TRACING
 static flagname_t TraceFlags[] = {
+	{ TRACE_ALL		 , "all" },
 	{ TRACE_NONE		 , "none" },
 
-	{ TRACE_VIDEO_SYNC	 , "video_sync" } ,
-	{ TRACE_VIDEO_RES	 , "video_res" } ,
-	{ TRACE_VIDEO_COLOR	 , "video_color" } ,
-	{ TRACE_VIDEO_BORDER_V   , "video_border_v" } ,
-	{ TRACE_VIDEO_BORDER_H   , "video_border_h" } ,
-	{ TRACE_VIDEO_ADDR	 , "video_addr" } ,
-	{ TRACE_VIDEO_HBL	 , "video_hbl" } ,
-	{ TRACE_VIDEO_VBL	 , "video_vbl" } ,
-	{ TRACE_VIDEO_STE	 , "video_ste" } ,
-	{ TRACE_VIDEO_ALL	 , "video_all" } ,
+	{ TRACE_ACIA		 , "acia" },
 
-	{ TRACE_MFP_EXCEPTION	 , "mfp_exception" } ,
-	{ TRACE_MFP_START	 , "mfp_start" } ,
-	{ TRACE_MFP_READ	 , "mfp_read" } ,
-	{ TRACE_MFP_WRITE	 , "mfp_write" } ,
-	{ TRACE_MFP_ALL 	 , "mfp_all" } ,
-
-	{ TRACE_PSG_READ	 , "psg_read" } ,
-	{ TRACE_PSG_WRITE	 , "psg_write" } ,
-	{ TRACE_PSG_ALL 	 , "psg_all" } ,
-
-	{ TRACE_CPU_PAIRING	 , "cpu_pairing" } ,
-	{ TRACE_CPU_DISASM	 , "cpu_disasm" } ,
-	{ TRACE_CPU_EXCEPTION	 , "cpu_exception" } ,
-	{ TRACE_CPU_REGS	 , "cpu_regs" } ,
-	{ TRACE_CPU_ALL 	 , "cpu_all" } ,
-
-	{ TRACE_INT		 , "int" } ,
-
-	{ TRACE_FDC		 , "fdc" } ,
-
-	{ TRACE_ACIA		 , "acia" } ,
-
-	{ TRACE_IKBD_CMDS	 , "ikbd_cmds" } ,
-	{ TRACE_IKBD_ACIA	 , "ikbd_acia" } ,
-	{ TRACE_IKBD_EXEC	 , "ikbd_exec" } ,
-	{ TRACE_IKBD_ALL	 , "ikbd_all" } ,
-
-	{ TRACE_BLITTER 	 , "blitter" } ,
+	{ TRACE_OS_AES  	 , "aes" },
 
 	{ TRACE_OS_BIOS 	 , "bios" },
-	{ TRACE_OS_XBIOS	 , "xbios" },
-	{ TRACE_OS_GEMDOS	 , "gemdos" },
-	{ TRACE_OS_VDI  	 , "vdi" },
-	{ TRACE_OS_AES  	 , "aes" },
-	{ TRACE_OS_ALL  	 , "os_all" } ,
 
-	{ TRACE_IOMEM_RD	 , "io_read" } ,
-	{ TRACE_IOMEM_WR	 , "io_write" } ,
-	{ TRACE_IOMEM_ALL	 , "io_all" } ,
+	{ TRACE_BLITTER 	 , "blitter" },
 
-	{ TRACE_DMASND  	 , "dmasound" } ,
+	{ TRACE_CPU_ALL 	 , "cpu_all" },
+	{ TRACE_CPU_DISASM	 , "cpu_disasm" },
+	{ TRACE_CPU_EXCEPTION	 , "cpu_exception" },
+	{ TRACE_CPU_PAIRING	 , "cpu_pairing" },
+	{ TRACE_CPU_REGS	 , "cpu_regs" },
+	{ TRACE_CPU_SYMBOLS	 , "cpu_symbols" },
+	{ TRACE_CPU_VIDEO_CYCLES , "cpu_video_cycles" },
 
-	{ TRACE_CROSSBAR  	 , "crossbar" } ,
+	{ TRACE_CROSSBAR  	 , "crossbar" },
 
-	{ TRACE_VIDEL  	         , "videl" } ,
+	{ TRACE_DMASND  	 , "dmasound" },
 
-	{ TRACE_DSP_HOST_INTERFACE, "dsp_host_interface" },
-	{ TRACE_DSP_HOST_COMMAND , "dsp_host_command" },
-	{ TRACE_DSP_HOST_SSI	 , "dsp_host_ssi" },
-	{ TRACE_DSP_INTERRUPT	 , "dsp_interrupt" },
+	{ TRACE_DSP_ALL		 , "dsp_all" },
 	{ TRACE_DSP_DISASM	 , "dsp_disasm" },
 	{ TRACE_DSP_DISASM_REG	 , "dsp_disasm_reg" },
 	{ TRACE_DSP_DISASM_MEM	 , "dsp_disasm_mem" },
+	{ TRACE_DSP_HOST_COMMAND , "dsp_host_command" },
+	{ TRACE_DSP_HOST_INTERFACE,"dsp_host_interface" },
+	{ TRACE_DSP_HOST_SSI	 , "dsp_host_ssi" },
+	{ TRACE_DSP_INTERRUPT	 , "dsp_interrupt" },
 	{ TRACE_DSP_STATE	 , "dsp_state" },
-	{ TRACE_DSP_ALL		 , "dsp_all" },
-
 	{ TRACE_DSP_SYMBOLS	 , "dsp_symbols" },
-	{ TRACE_CPU_SYMBOLS	 , "cpu_symbols" },
 
-	{ TRACE_NVRAM		 , "nvram" } ,
+	{ TRACE_FDC		 , "fdc" },
 
-	{ TRACE_SCSI_CMD	 , "scsi_cmd" } ,
+	{ TRACE_OS_GEMDOS	 , "gemdos" },
 
-	{ TRACE_NATFEATS	 , "natfeats" } ,
+	{ TRACE_IDE		 , "ide" },
 
-	{ TRACE_KEYMAP		 , "keymap" } ,
+	{ TRACE_IKBD_ALL	 , "ikbd_all" },
+	{ TRACE_IKBD_ACIA	 , "ikbd_acia" },
+	{ TRACE_IKBD_CMDS	 , "ikbd_cmds" },
+	{ TRACE_IKBD_EXEC	 , "ikbd_exec" },
 
-	{ TRACE_MIDI		 , "midi" } ,
+	{ TRACE_INT		 , "int" },
 
-	{ TRACE_IDE		 , "ide" } ,
+	{ TRACE_IOMEM_ALL	 , "io_all" },
+	{ TRACE_IOMEM_RD	 , "io_read" },
+	{ TRACE_IOMEM_WR	 , "io_write" },
 
-	{ TRACE_OS_BASE		 , "os_base" } ,
+	{ TRACE_KEYMAP		 , "keymap" },
 
-	{ TRACE_SCSIDRV		 , "scsidrv" } ,
+	{ TRACE_MEM		 , "mem" },
 
-	{ TRACE_MEM		 , "mem" } ,
+	{ TRACE_MFP_ALL 	 , "mfp_all" },
+	{ TRACE_MFP_EXCEPTION	 , "mfp_exception" },
+	{ TRACE_MFP_READ	 , "mfp_read" },
+	{ TRACE_MFP_START	 , "mfp_start" },
+	{ TRACE_MFP_WRITE	 , "mfp_write" },
 
-	{ TRACE_ALL		 , "all" }
+	{ TRACE_MIDI		 , "midi" },
+	{ TRACE_MIDI_RAW	 , "midi_raw" },
+
+	{ TRACE_NATFEATS	 , "natfeats" },
+
+	{ TRACE_NVRAM		 , "nvram" },
+
+	{ TRACE_OS_ALL  	 , "os_all" },
+	{ TRACE_OS_BASE		 , "os_base" },
+
+	{ TRACE_PSG_ALL 	 , "psg_all" },
+	{ TRACE_PSG_READ	 , "psg_read" },
+	{ TRACE_PSG_WRITE	 , "psg_write" },
+
+	{ TRACE_SCC		 , "scc" },
+
+	{ TRACE_SCSI_CMD	 , "scsi_cmd" },
+
+	{ TRACE_SCSIDRV		 , "scsidrv" },
+
+	{ TRACE_OS_VDI  	 , "vdi" },
+
+	{ TRACE_VIDEL  	         , "videl" },
+
+	{ TRACE_VIDEO_ALL	 , "video_all" },
+	{ TRACE_VIDEO_ADDR	 , "video_addr" },
+	{ TRACE_VIDEO_COLOR	 , "video_color" },
+	{ TRACE_VIDEO_BORDER_H   , "video_border_h" },
+	{ TRACE_VIDEO_BORDER_V   , "video_border_v" },
+	{ TRACE_VIDEO_HBL	 , "video_hbl" },
+	{ TRACE_VIDEO_RES	 , "video_res" },
+	{ TRACE_VIDEO_STE	 , "video_ste" },
+	{ TRACE_VIDEO_SYNC	 , "video_sync" },
+	{ TRACE_VIDEO_VBL	 , "video_vbl" },
+
+	{ TRACE_VME		 , "vme" },
+
+	{ TRACE_OS_XBIOS	 , "xbios" },
 };
 #endif /* ENABLE_TRACING */
 
 
-Uint64	LogTraceFlags = TRACE_NONE;
+uint64_t LogTraceFlags = TRACE_NONE;
 FILE *TraceFile = NULL;
+
+
+/* SDL GUI Alerts can show 4*50 chars at max, and much longer
+ * console messages are not very readable either, just slow
+ */
+#define MAX_MSG_LEN 256
+#define REPEAT_LIMIT_INIT 8
+
+/* FILE* for output stream, message line repeat suppression limit,
+ * current repeat count, and previous line content for checking
+ * repetition
+ */
+static struct {
+	/* prev msg fp, in case same msg goes to multiple FILE*s */
+	FILE *fp;
+	int limit;
+	int count;
+	char prev[MAX_MSG_LEN];
+} MsgState;
 
 static FILE *hLogFile = NULL;
 
@@ -173,6 +202,7 @@ void Log_Default(void)
 	hLogFile = stderr;
 	TraceFile = stderr;
 	TextLogLevel = LOG_INFO;
+	MsgState.limit = REPEAT_LIMIT_INIT;
 }
 
 /**
@@ -194,9 +224,14 @@ int Log_Init(void)
 {
 	Log_SetLevels();
 
+	/* Flush pending msg & drop cached prev msg FILE pointer
+	 * before default log & trace FILE pointers change
+	 */
+	Log_ResetMsgRepeat();
+
 	hLogFile = File_Open(ConfigureParams.Log.sLogFileName, "w");
 	TraceFile = File_Open(ConfigureParams.Log.sTraceFileName, "w");
-   
+
 	return (hLogFile && TraceFile);
 }
 
@@ -219,22 +254,132 @@ int Log_SetAlertLevel(int level)
  */
 void Log_UnInit(void)
 {
+	/* Flush pending msg & drop cached prev msg FILE pointer
+	 * before log & trace FILE pointers change
+	 */
+	Log_ResetMsgRepeat();
+
 	hLogFile = File_Close(hLogFile);
 	TraceFile = File_Close(TraceFile);
 }
 
+/*-----------------------------------------------------------------------
+ * log/trace message repeat suppression handling
+ */
+
+static void printMsgRepeat(FILE *fp)
+{
+	/* strings already include trailing newline */
+	fprintf(fp, "%d repeats of: %s", MsgState.count, MsgState.prev);
+}
+
+/**
+ * If there is a pending message that has not been output yet,
+ * output it and return true, otherwise false.
+ */
+static bool printPendingMsgRepeat(FILE *fp)
+{
+	if (likely(MsgState.count == 0))
+		return false;
+	if (MsgState.count > 1)
+		printMsgRepeat(fp);
+	else
+		fputs(MsgState.prev, fp);
+	return true;
+}
+
+/**
+ * Output pending and given messages when appropriate,
+ * and cache given fp & message if it's not a repeat.
+ */
+static void addMsgRepeat(FILE *fp, const char *line)
+{
+	/* repeated message? */
+	if (fp == MsgState.fp &&
+	    unlikely(strcmp(line, MsgState.prev) == 0))
+	{
+		MsgState.count++;
+		/* limit crossed? -> print + increase repeat limit */
+		if (unlikely(MsgState.count >= MsgState.limit))
+		{
+			printMsgRepeat(fp);
+			MsgState.limit *= 2;
+			MsgState.count = 0;
+			fflush(fp);
+		}
+		return;
+	}
+	/* no repeat -> print previous message/repeat */
+	printPendingMsgRepeat(MsgState.fp);
+
+	/* store + print new message */
+	Str_Copy(MsgState.prev, line, sizeof(MsgState.prev));
+	MsgState.limit = REPEAT_LIMIT_INIT;
+	MsgState.count = 0;
+	MsgState.fp = fp;
+	fputs(line, fp);
+	fflush(fp);
+}
+
+/**
+ * Output pending messages repeat info and reset repeat info.
+ */
+void Log_ResetMsgRepeat(void)
+{
+	if (!printPendingMsgRepeat(MsgState.fp))
+	{
+		MsgState.fp = NULL;
+		return;
+	}
+	MsgState.prev[0] = '\0';
+	if (MsgState.limit)
+		MsgState.limit = REPEAT_LIMIT_INIT;
+	MsgState.count = 0;
+	MsgState.fp = NULL;
+}
+
+/**
+ * Toggle whether message repeats are shown
+ */
+void Log_ToggleMsgRepeat(void)
+{
+	if (MsgState.limit)
+	{
+		fprintf(stderr, "Message repeats will be shown as-is\n");
+		MsgState.limit = 0;
+	}
+	else
+	{
+		fprintf(stderr, "Message repeats will be suppressed\n");
+		MsgState.limit = REPEAT_LIMIT_INIT;
+	}
+	Log_ResetMsgRepeat();
+}
 
 /*-----------------------------------------------------------------------*/
 /**
- * Print log prefix when needed
+ * Add log prefix to given string and return its lenght
  */
-static void Log_PrintPrefix(FILE *fp, LOGTYPE idx)
+static int Log_AddPrefix(char *msg, int len, LOGTYPE idx)
 {
 	static const char* prefix[] = LOG_NAMES;
 
 	assert(idx >= 0 && idx < ARRAY_SIZE(prefix));
-	if (prefix[idx])
-		fprintf(fp, "%s: ", prefix[idx]);
+	return snprintf(msg, len, "%s: ", prefix[idx]);
+}
+
+/**
+ * Add a new-line if it's missing. 'msg' points to place
+ * where it should be, and size is buffer size.
+ */
+static void addMissingNewline(char *msg, int size)
+{
+	assert(size > 2);
+	if (size > 2 && msg[0] != '\n')
+	{
+		msg[1] = '\n';
+		msg[2] = '\0';
+	}
 }
 
 
@@ -244,18 +389,29 @@ static void Log_PrintPrefix(FILE *fp, LOGTYPE idx)
  */
 void Log_Printf(LOGTYPE nType, const char *psFormat, ...)
 {
-	va_list argptr;
+	if (!(hLogFile && nType <= TextLogLevel))
+		return;
 
-	if (hLogFile && nType <= TextLogLevel)
-	{
-		Log_PrintPrefix(hLogFile, nType);
-		va_start(argptr, psFormat);
-		vfprintf(hLogFile, psFormat, argptr);
-		va_end(argptr);
-		/* Add a new-line if necessary: */
-		if (psFormat[strlen(psFormat)-1] != '\n')
-			fputs("\n", hLogFile);
-	}
+	char line[sizeof(MsgState.prev)];
+	int count, len = sizeof(line);
+	char *msg = line;
+
+	count = Log_AddPrefix(line, len, nType);
+	msg += count;
+	len -= count;
+
+	va_list argptr;
+	va_start(argptr, psFormat);
+	count = vsnprintf(msg, len, psFormat, argptr);
+	va_end(argptr);
+	msg += count;
+	len -= count;
+
+	addMissingNewline(msg-1, len+1);
+	if (MsgState.limit)
+		addMsgRepeat(hLogFile, line);
+	else
+		fputs(line, hLogFile);
 }
 
 
@@ -270,30 +426,35 @@ void Log_AlertDlg(LOGTYPE nType, const char *psFormat, ...)
 	/* Output to log file: */
 	if (hLogFile && nType <= TextLogLevel)
 	{
-		Log_PrintPrefix(hLogFile, nType);
+		char line[sizeof(MsgState.prev)];
+		int count, len = sizeof(line);
+		char *msg = line;
+
+		count = Log_AddPrefix(line, len, nType);
+		msg += count;
+		len -= count;
+
 		va_start(argptr, psFormat);
-		vfprintf(hLogFile, psFormat, argptr);
+		count = vsnprintf(msg, len, psFormat, argptr);
 		va_end(argptr);
-		/* Add a new-line if necessary: */
-		if (psFormat[strlen(psFormat)-1] != '\n')
-			fputs("\n", hLogFile);
+		msg += count;
+		len -= count;
+
+		addMissingNewline(msg-1, len+1);
+		if (MsgState.limit)
+			addMsgRepeat(hLogFile, line);
+		else
+			fputs(line, hLogFile);
 	}
 
 	/* Show alert dialog box: */
 	if (sdlscrn && nType <= AlertDlgLogLevel)
 	{
-		char *psTmpBuf;
-		psTmpBuf = malloc(2048);
-		if (!psTmpBuf)
-		{
-			perror("Log_AlertDlg");
-			return;
-		}
+		char buf[MAX_MSG_LEN];
 		va_start(argptr, psFormat);
-		vsnprintf(psTmpBuf, 2048, psFormat, argptr);
+		vsnprintf(buf, sizeof(buf), psFormat, argptr);
 		va_end(argptr);
-		DlgAlert_Notice(psTmpBuf);
-		free(psTmpBuf);
+		DlgAlert_Notice(buf);
 	}
 }
 
@@ -339,7 +500,7 @@ LOGTYPE Log_ParseOptions(const char *arg)
  * Return error string (""=silent 'error') or NULL for success.
  */
 static const char*
-Log_ParseOptionFlags (const char *FlagsStr, flagname_t *Flags, int MaxFlags, Uint64 *Mask)
+Log_ParseOptionFlags (const char *FlagsStr, flagname_t *Flags, int MaxFlags, uint64_t *Mask)
 {
 	char *FlagsCopy;
 	char *cur, *sep;
@@ -439,7 +600,7 @@ const char* Log_SetExceptionDebugMask (const char *FlagsStr)
 {
 	const char *errstr;
 
-	Uint64 mask = ConfigureParams.Debugger.nExceptionDebugMask;
+	uint64_t mask = ConfigureParams.Debugger.nExceptionDebugMask;
 	errstr = Log_ParseOptionFlags(FlagsStr, ExceptionFlags, ARRAY_SIZE(ExceptionFlags), &mask);
 	ConfigureParams.Debugger.nExceptionDebugMask = mask;
 	return errstr;
@@ -464,8 +625,10 @@ const char* Log_SetTraceOptions (const char *FlagsStr)
 	if (LogTraceFlags & (TRACE_OS_AES|TRACE_OS_VDI))
 		bVdiAesIntercept = true;
 
-	if ((LogTraceFlags & TRACE_OS_BASE) && ConOutDevice == CONOUT_DEVICE_NONE)
-		ConOutDevice = 2;
+	if ((LogTraceFlags & TRACE_OS_BASE))
+		Console_SetTrace(true);
+	else if (!LogTraceFlags)
+		Console_SetTrace(false);
 
 	return errstr;
 }
@@ -494,6 +657,31 @@ char *Log_MatchTrace(const char *text, int state)
 	return NULL;
 }
 
+/**
+ * Do trace output with optional repeat suppression
+ */
+void Log_Trace(const char *format, ...)
+{
+	va_list argptr;
+	char line[sizeof(MsgState.prev)];
+
+	if (!TraceFile)
+		return;
+
+	va_start(argptr, format);
+	if (MsgState.limit)
+	{
+		vsnprintf(line, sizeof(line), format, argptr);
+		addMsgRepeat(TraceFile, line);
+	}
+	else
+	{
+		vfprintf(TraceFile, format, argptr);
+		fflush(TraceFile);
+	}
+	va_end(argptr);
+}
+
 #else	/* !ENABLE_TRACING */
 
 /** dummy */
@@ -507,5 +695,8 @@ char *Log_MatchTrace(const char *text, int state)
 {
 	return NULL;
 }
+
+/** dummy */
+void Log_Trace(const char *format, ...) {}
 
 #endif	/* !ENABLE_TRACING */

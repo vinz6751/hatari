@@ -13,10 +13,13 @@ extern void memory_reset(void);
 
 #ifdef JIT
 extern int special_mem;
+extern int special_mem_default;
+extern int jit_n_addr_unsafe;
 #endif
 
 #define S_READ 1
 #define S_WRITE 2
+#define S_N_ADDR 4
 
 bool init_shm (void);
 void free_shm (void);
@@ -91,6 +94,7 @@ enum
 	ABFLAG_CHIPRAM = 4096, ABFLAG_CIA = 8192, ABFLAG_PPCIOSPACE = 16384,
 	ABFLAG_MAPPED = 32768,
 	ABFLAG_DIRECTACCESS = 65536,
+	ABFLAG_NODMA = 131072,
 	ABFLAG_CACHE_ENABLE_DATA = CACHE_ENABLE_DATA << ABFLAG_CACHE_SHIFT,
 	ABFLAG_CACHE_ENABLE_DATA_BURST = CACHE_ENABLE_DATA_BURST << ABFLAG_CACHE_SHIFT,
 	ABFLAG_CACHE_ENABLE_INS = CACHE_ENABLE_INS << ABFLAG_CACHE_SHIFT,
@@ -101,7 +105,9 @@ enum
 #define ABFLAG_CACHE_ENABLE_ALL (ABFLAG_CACHE_ENABLE_BOTH | ABFLAG_CACHE_ENABLE_INS_BURST | ABFLAG_CACHE_ENABLE_DATA_BURST)
 
 typedef struct {
-	/* These ones should be self-explanatory... */
+	/* These ones should be self-explanatory...
+	 * Do not move. JIT depends on it
+	 */
 	mem_get_func lget, wget, bget;
 	mem_put_func lput, wput, bput;
 	/* Use xlateaddr to translate an Amiga address to a uae_u8 * that can
@@ -137,6 +143,8 @@ typedef struct {
 	uae_u8 *baseaddr_direct_r;
 	uae_u8 *baseaddr_direct_w;
 	uae_u32 startaccessmask;
+	bool barrier;
+	uae_u32 protectmode;
 } addrbank;
 
 #define MEMORY_MIN_SUBBANK 1024
@@ -511,7 +519,7 @@ extern addrbank *get_mem_bank_real(uaecptr);
 #ifdef WINUAE_FOR_HATARI
 extern bool memory_region_bus_error ( uaecptr addr );
 extern bool memory_region_iomem ( uaecptr addr );
-extern void memory_map_Standard_RAM ( Uint32 MMU_Bank0_Size , Uint32 MMU_Bank1_Size );
+extern void memory_map_Standard_RAM ( uint32_t MMU_Bank0_Size , uint32_t MMU_Bank1_Size );
 #endif
 extern void memory_init(uae_u32 NewSTMemSize, uae_u32 NewTTMemSize, uae_u32 NewRomMemStart);
 extern void memory_uninit (void);
@@ -536,6 +544,9 @@ extern void set_roms_modified (void);
 extern void reload_roms(void);
 extern bool read_kickstart_version(struct uae_prefs *p);
 extern void chipmem_setindirect(void);
+extern void initramboard(addrbank *ab, struct ramboard *rb);
+extern void loadboardfile(addrbank *ab, struct boardloadfile *lf);
+extern void mman_set_barriers(bool);
 #endif
 
 uae_u32 memory_get_long(uaecptr);
@@ -681,6 +692,11 @@ STATIC_INLINE void *get_pointer (uaecptr addr)
 #  error "Unknown or unsupported pointer size."
 # endif
 #endif
+
+void dma_put_word(uaecptr addr, uae_u16 v);
+uae_u16 dma_get_word(uaecptr addr);
+void dma_put_byte(uaecptr addr, uae_u8 v);
+uae_u8 dma_get_byte(uaecptr addr);
 
 void memory_put_long(uaecptr, uae_u32);
 void memory_put_word(uaecptr, uae_u32);

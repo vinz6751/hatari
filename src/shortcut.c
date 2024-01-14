@@ -85,14 +85,7 @@ static void ShortCut_MouseGrab(void)
 	/* If we are in windowed mode, toggle the mouse cursor mode now: */
 	if (!bInFullScreen)
 	{
-		if (bGrabMouse)
-		{
-			SDL_WM_GrabInput(SDL_GRAB_ON);
-		}
-		else
-		{
-			SDL_WM_GrabInput(SDL_GRAB_OFF);
-		}
+		SDL_SetRelativeMouseMode(bGrabMouse);
 	}
 }
 
@@ -139,7 +132,7 @@ static void ShortCut_RecordAnimation(void)
 		Avi_StartRecording ( ConfigureParams.Video.AviRecordFile , ConfigureParams.Screen.bCrop ,
 			ConfigureParams.Video.AviRecordFps == 0 ?
 				ClocksTimings_GetVBLPerSec ( ConfigureParams.System.nMachineType , nScreenRefreshRate ) :
-				(Uint32)ConfigureParams.Video.AviRecordFps << CLOCKS_TIMINGS_SHIFT_VBL ,
+				ClocksTimings_GetVBLPerSec ( ConfigureParams.System.nMachineType , ConfigureParams.Video.AviRecordFps ) ,
 			1 << CLOCKS_TIMINGS_SHIFT_VBL ,
 			ConfigureParams.Video.AviRecordVcodec );
 	}
@@ -203,17 +196,13 @@ static void ShortCut_BossKey(void)
 
 	if (bGrabMouse)
 	{
-		SDL_WM_GrabInput(SDL_GRAB_OFF);
+		SDL_SetRelativeMouseMode(false);
 		bGrabMouse = false;
 	}
 	Main_PauseEmulation(true);
 
 	/* Minimize Window and give up processing to next one! */
-#if WITH_SDL2
 	SDL_MinimizeWindow(sdlWindow);
-#else
-	SDL_WM_IconifyWindow();
-#endif
 }
 
 
@@ -252,6 +241,8 @@ static void ShortCut_InsertDisk(int drive)
 	const char *tmpname;
 	char FileNameB[ FILENAME_MAX ];
 
+	bool bOldMouseMode = SDL_GetRelativeMouseMode();
+
 	if (SDLGui_SetScreen(sdlscrn))
 		return;
 
@@ -264,7 +255,11 @@ static void ShortCut_InsertDisk(int drive)
 		tmpname = ConfigureParams.DiskImage.szDiskImageDirectory;
 
 	Main_PauseEmulation(true);
+
+	SDL_SetRelativeMouseMode(SDL_FALSE);
 	selname = SDLGui_FileSelect("Floppy image:", tmpname, &zip_path, false);
+	SDL_SetRelativeMouseMode(bOldMouseMode);
+
 	if (selname)
 	{
 		if (File_Exists(selname))
@@ -459,7 +454,7 @@ bool ShortCut_CheckKeys(int modkey, int symkey, bool press)
 	if (symkey == SDLK_UNKNOWN)
 		return false;
 
-	if (modkey & (KMOD_RALT|KMOD_LMETA|KMOD_RMETA|KMOD_MODE))
+	if (modkey & (KMOD_RALT|KMOD_LGUI|KMOD_RGUI|KMOD_MODE))
 		key = ShortCut_CheckKey(symkey, ConfigureParams.Shortcut.withModifier);
 	else
 		key = ShortCut_CheckKey(symkey, ConfigureParams.Shortcut.withoutModifier);

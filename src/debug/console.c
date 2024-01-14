@@ -20,12 +20,52 @@ const char Console_fileid[] = "Hatari console.c";
 #include "console.h"
 #include "options.h"
 
+/* number of xconout devices to track */
+int ConOutDevices;
+
+#define CONOUT_DEVICE_NONE 127 /* valid ones are 0-7 */
+
+/* device number for xconout devices to track */
+static int con_dev = CONOUT_DEVICE_NONE;
+static bool con_trace;
+
+/**
+ * Set which Atari xconout device output goes to host console.
+ * Returns true for valid device values (0-7), false otherwise
+ */
+bool Console_SetDevice(int dev)
+{
+	if (dev < 0 || dev > 7) {
+		return false;
+	}
+	if (con_dev == CONOUT_DEVICE_NONE) {
+		ConOutDevices++;
+	}
+	con_dev = dev;
+	return true;
+}
+
+/**
+ * Enable / disable xconout 2 host output for tracing.
+ * Overrides Console_SetDevice() device while enabled
+ */
+void Console_SetTrace(bool enable)
+{
+	if (enable && !con_trace) {
+		ConOutDevices++;
+	}
+	if (con_trace && !enable) {
+		ConOutDevices--;
+	}
+	con_trace = enable;
+}
+
 /**
  * Maps Atari characters to their closest ASCII equivalents.
  */
-static void map_character(Uint8 value)
+static void map_character(uint8_t value)
 {
-	static const Uint8 map_0_31[32] = {
+	static const uint8_t map_0_31[32] = {
 		'.', '.', '.', '.', '.', '.', '.', '.',	/* 0x00 */
 		/* white space */
 		'\b','\t','\n','.','.','\r', '.', '.',	/* 0x08 */
@@ -33,7 +73,7 @@ static void map_character(Uint8 value)
 		'0', '1', '2', '3', '4', '5', '6', '7',	/* 0x10 */
 		'8', '9', '.', '.', '.', '.', '.', '.' 	/* 0x18 */
 	};
-	static const Uint8 map_128_255[128] = {
+	static const uint8_t map_128_255[128] = {
 		/* accented characters */
 		'C', 'U', 'e', 'a', 'a', 'a', 'a', 'c',	/* 0x80 */
 		'e', 'e', 'e', 'i', 'i', 'i', 'A', 'A',	/* 0x88 */
@@ -73,7 +113,7 @@ static void map_character(Uint8 value)
  * at which point output switches to next line.  Other VT52
  * escape sequences than cursor movement are ignored.
  */
-static void vt52_emu(Uint8 value)
+static void vt52_emu(uint8_t value)
 {
 	/* state machine to handle/ignore VT52 escape sequence */
 	static int escape_index;
@@ -179,18 +219,22 @@ static void vt52_emu(Uint8 value)
 	map_character(value);
 }
 
-
 /**
  * Catch requested xconout vector calls and show their output on console
  */
 void Console_Check(void)
 {
-	Uint32 pc, xconout, stack, stackbeg, stackend;
-	int increment;
-	Uint16 chr;
+	uint32_t pc, xconout, stack, stackbeg, stackend;
+	int increment, dev;
+	uint16_t chr;
 
+	if (con_trace) {
+		dev = 2;
+	} else {
+		dev = con_dev;
+	}
 	/* xconout vector for requested device? */
-	xconout = STMemory_ReadLong(0x57e + ConOutDevice * SIZE_LONG);
+	xconout = STMemory_ReadLong(0x57e + dev * SIZE_LONG);
 	pc = M68000_GetPC();
 	if (pc != xconout) {
 		return;
@@ -208,7 +252,7 @@ void Console_Check(void)
 	stackbeg = stack = Regs[REG_A7];
 	stackend = stack + 16;
 	increment = SIZE_LONG;
-	while (STMemory_ReadWord(stack) != ConOutDevice) {
+	while (STMemory_ReadWord(stack) != dev) {
 		stack += increment;
 		if (stack > stackend) {
 			if (increment == SIZE_LONG) {
@@ -235,7 +279,7 @@ void Console_Check(void)
 		}
 		chr &= 0xff;
 	}
-	switch(ConOutDevice) {
+	switch(dev) {
 	case 2:	/* EmuTOS/TOS/MiNT/etc console, VT-52 terminal */
 		vt52_emu(chr);
 		break;

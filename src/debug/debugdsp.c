@@ -30,8 +30,8 @@ const char DebugDsp_fileid[] = "Hatari debugdsp.c";
 #include "str.h"
 #include "symbols.h"
 
-static Uint16 dsp_disasm_addr;    /* DSP disasm address */
-static Uint16 dsp_memdump_addr;   /* DSP memdump address */
+static uint16_t dsp_disasm_addr;    /* DSP disasm address */
+static uint16_t dsp_memdump_addr;   /* DSP memdump address */
 static char dsp_mem_space = 'P';  /* X, Y, P */
 
 static bool bDspProfiling;        /* Whether profiling is enabled */
@@ -63,7 +63,7 @@ static char *DebugDsp_MatchRegister(const char *text, int state)
 int DebugDsp_Register(int nArgc, char *psArgs[])
 {
 	char *assign;
-	Uint32 value;
+	uint32_t value;
 	char *arg;
 
 	if (!bDspEnabled)
@@ -102,30 +102,12 @@ error_msg:
 
 
 /**
- * Check whether given address matches any DSP symbol and whether
- * there's profiling information available for it.  If yes, show it.
- * 
- * @return true if symbol was shown, false otherwise
- */
-static bool DebugDsp_ShowAddressInfo(Uint16 addr, FILE *fp)
-{
-	const char *symbol = Symbols_GetByDspAddress(addr, SYMTYPE_ALL);
-	if (symbol)
-	{
-		fprintf(fp, "%s:\n", symbol);
-		return true;
-	}
-	return false;
-}
-
-
-/**
  * DSP disassemble - arg = starting address/range, or PC.
  */
 int DebugDsp_DisAsm(int nArgc, char *psArgs[])
 {
-	Uint32 lower, upper;
-	Uint16 dsp_disasm_upper = 0;
+	uint32_t lower, upper;
+	uint16_t prev_addr, dsp_disasm_upper = 0, pc = DSP_GetPC();
 	int shown, lines = INT_MAX;
 
 	if (!bDspEnabled)
@@ -166,19 +148,36 @@ int DebugDsp_DisAsm(int nArgc, char *psArgs[])
 	{
 		/* continue */
 		if(!dsp_disasm_addr)
-		{
-			dsp_disasm_addr = DSP_GetPC();
-		}
+			dsp_disasm_addr = pc;
 	}
 	if (!dsp_disasm_upper)
 	{
 		lines = DebugUI_GetPageLines(ConfigureParams.Debugger.nDisasmLines, 8);
 		dsp_disasm_upper = 0xFFFF;
 	}
+	prev_addr = dsp_disasm_addr;
 	fprintf(debugOutput, "DSP disasm 0x%hx-0x%hx:\n", dsp_disasm_addr, dsp_disasm_upper);
 	for (shown = 1; shown < lines && dsp_disasm_addr < dsp_disasm_upper; shown++) {
-		if (DebugDsp_ShowAddressInfo(dsp_disasm_addr, debugOutput))
+		const char *symbol;
+
+		if (prev_addr < pc && dsp_disasm_addr > pc)
+		{
+			fputs("ERROR, disassembly misaligned with PC address, correcting\n", debugOutput);
+			dsp_disasm_addr = pc;
 			shown++;
+		}
+		if (dsp_disasm_addr == pc)
+		{
+			fputs("(PC)\n", debugOutput);
+			shown++;
+		}
+		prev_addr = dsp_disasm_addr;
+		symbol = Symbols_GetByDspAddress(dsp_disasm_addr, SYMTYPE_ALL);
+		if (symbol)
+		{
+			fprintf(debugOutput, "%s:\n", symbol);
+			shown++;
+		}
 		dsp_disasm_addr = DSP_DisasmAddress(debugOutput, dsp_disasm_addr, dsp_disasm_addr);
 	}
 	fflush(debugOutput);
@@ -194,8 +193,8 @@ int DebugDsp_DisAsm(int nArgc, char *psArgs[])
  */
 int DebugDsp_MemDump(int nArgc, char *psArgs[])
 {
-	Uint32 lower, upper;
-	Uint16 dsp_memdump_upper = 0;
+	uint32_t lower, upper;
+	uint16_t dsp_memdump_upper = 0;
 	char *range, space;
 
 	if (!bDspEnabled)
@@ -309,7 +308,7 @@ static int DebugDsp_Continue(int nArgc, char *psArgv[])
 static int DebugDsp_Step(int nArgc, char *psArgv[])
 {
 	nDspSteps = 1;
-	return DEBUGGER_END;
+	return DEBUGGER_ENDCONT;
 }
 
 
@@ -327,15 +326,31 @@ static char *DebugDsp_MatchNext(const char *text, int state)
 }
 
 /**
+ * Variable + debugger variable function for tracking
+ * subroutine call depth for "dspnext" breakpoint
+ */
+static int DspCallDepth;
+uint32_t DebugDsp_CallDepth(void)
+{
+	return DspCallDepth;
+}
+/* Depth tracking can start anywhere i.e. it can go below initial
+ * value.  Start from large enough value that it should never goes
+ * negative, as then DebugCpu_CallDepth() return value would wrap
+ */
+#define CALL_START_DEPTH 10000
+
+/**
  * Command: Step DSP, but proceed through subroutines
  * Does this by temporary conditional breakpoint
  */
 static int DebugDsp_Next(int nArgc, char *psArgv[])
 {
-	char command[40];
+	char command[80];
 	if (nArgc > 1)
 	{
 		int optype;
+		bool depthcheck = false;
 		if(strcmp(psArgv[1], "branch") == 0)
 			optype = CALL_BRANCH;
 		else if(strcmp(psArgv[1], "exreturn") == 0)
@@ -343,7 +358,10 @@ static int DebugDsp_Next(int nArgc, char *psArgv[])
 		else if(strcmp(psArgv[1], "subcall") == 0)
 			optype = CALL_SUBROUTINE;
 		else if (strcmp(psArgv[1], "subreturn") == 0)
+		{
 			optype = CALL_SUBRETURN;
+			depthcheck = true;
+		}
 		else if (strcmp(psArgv[1], "return") == 0)
 			optype = CALL_SUBRETURN | CALL_EXCRETURN;
 		else
@@ -351,19 +369,28 @@ static int DebugDsp_Next(int nArgc, char *psArgv[])
 			fprintf(stderr, "Unrecognized opcode type given!\n");
 			return DEBUGGER_CMDDONE;
 		}
-		sprintf(command, "DspOpcodeType & $%x > 0 :once :quiet\n", optype);
+		/* DspOpCodeType increases call depth on subroutine calls, and
+		 * decreases depth on return from them, so it must be first check
+		 * to get called on every relevant instruction.
+		 */
+		DspCallDepth = CALL_START_DEPTH;
+		if (depthcheck)
+			sprintf(command, "DspOpcodeType & $%x > 0  &&  DspCallDepth < $%x  :once :quiet\n",
+				optype, CALL_START_DEPTH);
+		else
+			sprintf(command, "DspOpcodeType & $%x > 0 :once :quiet\n", optype);
 	}
 	else
 	{
-		Uint32 optype;
-		Uint16 nextpc;
+		uint32_t optype;
+		uint16_t nextpc;
 
 		optype = DebugDsp_OpcodeType();
 		/* can this instruction be stepped normally? */
 		if (optype != CALL_SUBROUTINE && optype != CALL_EXCEPTION)
 		{
 			nDspSteps = 1;
-			return DEBUGGER_END;
+			return DEBUGGER_ENDCONT;
 		}
 
 		nextpc = DSP_GetNextPC(DSP_GetPC());
@@ -372,7 +399,7 @@ static int DebugDsp_Next(int nArgc, char *psArgv[])
 	/* use breakpoint, not steps */
 	if (BreakCond_Command(command, true)) {
 		nDspSteps = 0;
-		return DEBUGGER_END;
+		return DEBUGGER_ENDCONT;
 	}
 	return DEBUGGER_CMDDONE;
 }
@@ -380,16 +407,17 @@ static int DebugDsp_Next(int nArgc, char *psArgv[])
 /* helper to get instruction type, slightly simpler
  * version from one in profiledsp.c
  */
-Uint32 DebugDsp_OpcodeType(void)
+uint32_t DebugDsp_OpcodeType(void)
 {
 	const char *dummy;
-	Uint32 opcode;
+	uint32_t opcode;
 
 	/* 24-bit instruction opcode */
 	opcode = DSP_ReadMemory(DSP_GetPC(), 'P', &dummy) & 0xFFFFFF;
 
 	/* subroutine returns */
 	if (opcode == 0xC) {	/* (just) RTS */
+		DspCallDepth--;
 		return CALL_SUBRETURN;
 	}
 	if (
@@ -407,6 +435,7 @@ Uint32 DebugDsp_OpcodeType(void)
 	    (opcode & 0xFFC0A0) == 0xB00A0 ||	/* JSSET 00001011 00aaaaaa 1S1bbbbb */
 	    (opcode & 0xFFC0A0) == 0xB80A0 ||	/* JSSET 00001011 10pppppp 1S1bbbbb */
 	    (opcode & 0xFFC0E0) == 0xBC020) {	/* JSSET 00001011 11DDDDDD 001bbbbb */
+		DspCallDepth++;
 		return CALL_SUBROUTINE;
 	}
 	/* exception handler returns */
@@ -470,8 +499,8 @@ static int DebugDsp_Profile(int nArgc, char *psArgs[])
 /**
  * DSP instructions since continuing emulation
  */
-static Uint32 nDspInstructions;
-Uint32 DebugDsp_InstrCount(void)
+static uint32_t nDspInstructions;
+uint32_t DebugDsp_InstrCount(void)
 {
 	return nDspInstructions;
 }
@@ -488,7 +517,10 @@ void DebugDsp_Check(void)
 	}
 	if (LOG_TRACE_LEVEL((TRACE_DSP_DISASM|TRACE_DSP_SYMBOLS)))
 	{
-		DebugDsp_ShowAddressInfo(DSP_GetPC(), TraceFile);
+		const char *symbol;
+		symbol = Symbols_GetByDspAddress(DSP_GetPC(), SYMTYPE_ALL);
+		if (symbol)
+			LOG_TRACE_PRINT("%s\n", symbol);
 	}
 	if (nDspActiveCBs)
 	{
@@ -554,14 +586,14 @@ static const dbgcommand_t dspcommands[] =
 	  "dspdisasm", "dd",
 	  "disassemble DSP code",
 	  "[<start address>[-<end address>]]\n"
-	  "\tDisassemble from DSP-PC, otherwise at given address.",
+	  "\tDisassemble from DSP PC address, otherwise from given address.",
 	  false },
 	{ DebugDsp_MemDump, Symbols_MatchDspDataAddress,
 	  "dspmemdump", "dm",
 	  "dump DSP memory",
 	  "[<x|y|p> <start address>[-<end address>]]\n"
 	  "\tdump DSP memory from given memory space and address, or\n"
-	  "\tcontinue from previous address if not specified.",
+	  "\tcontinue from previous address if none specified.",
 	  false },
 	{ Symbols_Command, NULL,
 	  "dspsymbols", "",
@@ -576,14 +608,15 @@ static const dbgcommand_t dspcommands[] =
 	{ DebugDsp_Register, DebugDsp_MatchRegister,
 	  "dspreg", "dr",
 	  "read/write DSP registers",
-	  "[REG=value]"
-	  "\tSet or dump contents of DSP registers.",
+	  "[REG=value]\n"
+	  "\tSet DSP register to given value, or dump all registers\n"
+	  "\twhen no parameter is given.",
 	  true },
 	{ DebugDsp_Step, NULL,
 	  "dspstep", "ds",
 	  "single-step DSP",
 	  "\n"
-	  "\tExecute next DSP instruction (equals 'dc 1')",
+	  "\tExecute next DSP instruction (like 'dc 1', but repeats on Enter).",
 	  false },
 	{ DebugDsp_Next, DebugDsp_MatchNext,
 	  "dspnext", "dn",
@@ -592,7 +625,7 @@ static const dbgcommand_t dspcommands[] =
 	  "\tSame as 'dspstep' command if there are no subroutine calls.\n"
           "\tWhen there are, those calls are treated as one instruction.\n"
 	  "\tIf argument is given, continues until instruction of given\n"
-	  "\ttype is encountered.",
+	  "\ttype is encountered.  Repeats on Enter.",
 	  false },
 	{ DebugDsp_Continue, NULL,
 	  "dspcont", "dc",
@@ -630,6 +663,7 @@ int DebugDsp_Init(const dbgcommand_t **table)
  */
 void DebugDsp_InitSession(void)
 {
-	dsp_disasm_addr = DSP_GetPC();
+#define MAX_DSP_DISASM_OFFSET 8
+	dsp_disasm_addr = (uint16_t)History_DisasmAddr(DSP_GetPC(), MAX_DSP_DISASM_OFFSET, true);
 	Profile_DspStop();
 }

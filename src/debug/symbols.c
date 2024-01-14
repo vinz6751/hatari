@@ -1,7 +1,7 @@
 /*
  * Hatari - symbols.c
  * 
- * Copyright (C) 2010-2019 by Eero Tamminen
+ * Copyright (C) 2010-2023 by Eero Tamminen
  * 
  * This file is distributed under the GNU General Public License, version 2
  * or at your option any later version. Read the file gpl.txt for details.
@@ -10,7 +10,7 @@
  * matching, TAB completion support etc.
  * 
  * Symbol/address information is read either from:
- * - A program file's DRI/GST or a.out format symbol table, or
+ * - A program file's symbol table (in DRI/GST, a.out, or ELF format), or
  * - ASCII file which contents are subset of "nm" output i.e. composed of
  *   a hexadecimal addresses followed by a space, letter indicating symbol
  *   type (T = text/code, D = data, B = BSS), space and the symbol name.
@@ -23,8 +23,6 @@ const char Symbols_fileid[] = "Hatari symbols.c";
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-#include <SDL_types.h>
-#include <SDL_endian.h>
 #include "main.h"
 #include "file.h"
 #include "options.h"
@@ -35,39 +33,17 @@ const char Symbols_fileid[] = "Hatari symbols.c";
 #include "evaluate.h"
 #include "configuration.h"
 #include "a.out.h"
+#include "maccess.h"
 
-typedef struct {
-	char *name;
-	Uint32 address;
-	symtype_t type;
-} symbol_t;
-
-typedef struct {
-	int symbols;		/* initial symbol count */
-	int namecount;		/* final symbol count */
-	int codecount;		/* TEXT symbol address count */
-	int datacount;		/* DATA/BSS symbol address count */
-	symbol_t *addresses;	/* TEXT + DATA/BSS items sorted by address */
-	symbol_t *names;	/* all items sorted by symbol name */
-	char *strtab;
-} symbol_list_t;
-
-typedef struct {
-	Uint32 offset;
-	Uint32 end;
-} prg_section_t;
-
+#include "symbols-common.c"
 
 /* how many characters the symbol name can have.
- * NOTE: change also sscanf width arg if you change this!!!
+ *
+ * While DRI/GST symbols are at max only couple of dozen
+ * chars long, C++/a.out symbols can be almost of any size.
  */
-#define MAX_SYM_SIZE 32
-
-/* Magic used to denote different symbol table formats */
-#define SYMBOL_FORMAT_GNU  0x474E555f	/* "MiNT" */
-#define SYMBOL_FORMAT_MINT 0x4D694E54	/* "GNU_" */
-#define SYMBOL_FORMAT_DRI  0x0
-
+#define MAX_SYM_SIZE 1024
+#define MAX_SYM_SIZE_S "1024"
 
 /* TODO: add symbol name/address file names to configuration? */
 static symbol_list_t *CpuSymbolsList;
@@ -81,767 +57,20 @@ static bool SymbolsAreForProgram;
 static bool AutoLoadFailed;
 
 
-/* ------------------ load and free functions ------------------ */
-
-/**
- * return true if given symbol name is object/library/file name
- */
-static bool is_obj_file(const char *name)
-{
-	int len = strlen(name);
-	/* object (.a or .o) / file name? */
-	if (len > 2 && ((name[len-2] == '.' && (name[len-1] == 'a' || name[len-1] == 'o')) || strchr(name, '/'))) {
-		    return true;
-	}
-	return false;
-}
-
-/**
- * compare function for qsort() to sort according to
- * symbol type & address.  Text section symbols will
- * be sorted first.
- */
-static int symbols_by_address(const void *s1, const void *s2)
-{
-	const symbol_t *sym1 = (const symbol_t*)s1;
-	const symbol_t *sym2 = (const symbol_t*)s2;
-
-	/* separate TEXT type addresses from others */
-	if (sym1->type != sym2->type) {
-		if (sym1->type == SYMTYPE_TEXT) {
-			return -1;
-		}
-		if (sym2->type == SYMTYPE_TEXT) {
-			return 1;
-		}
-	}
-	/* then sort by address */
-	if (sym1->address < sym2->address) {
-		return -1;
-	}
-	if (sym1->address > sym2->address) {
-		return 1;
-	}
-	return 0;
-}
-
-/**
- * compare function for qsort() to sort according to
- * symbol name & address
- */
-static int symbols_by_name(const void *s1, const void *s2)
-{
-	const symbol_t *sym1 = (const symbol_t*)s1;
-	const symbol_t *sym2 = (const symbol_t*)s2;
-	int ret;
-
-	/* first by name */
-	ret = strcmp(sym1->name, sym2->name);
-	if (ret) {
-		return ret;
-	}
-	/* then by address */
-	return (sym1->address - sym2->address);
-}
-
-/**
- * Check for duplicate addresses in symbol list
- * (called separately for TEXT & non-TEXT symbols)
- * Return number of duplicates
- */
-static int symbols_check_addresses(const symbol_t *syms, int count)
-{
-	int i, j, dups = 0;
-
-	for (i = 0; i < (count - 1); i++)
-	{
-		/* absolute symbols have values, not addresses */
-		if (syms[i].type == SYMTYPE_ABS) {
-			continue;
-		}
-		for (j = i + 1; j < count && syms[i].address == syms[j].address; j++) {
-			if (syms[j].type == SYMTYPE_ABS) {
-				continue;
-			}
-			/* ASCII symbol files contain also object file addresses,
-			 * those will often have the same address as the first symbol
-			 * in given object -> no point warning about them
-			 */
-			if (is_obj_file(syms[i].name) || is_obj_file(syms[j].name)) {
-				continue;
-			}
-			fprintf(stderr,	"WARNING: symbols '%s' & '%s' have the same 0x%x address\n",
-				syms[i].name, syms[j].name, syms[i].address);
-			dups++;
-			i = j;
-		}
-	}
-	return dups;
-}
-
-/**
- * Check for duplicate names in symbol list
- * Return number of duplicates
- */
-static int symbols_check_names(const symbol_t *syms, int count)
-{
-	int i, j, dups = 0;
-
-	for (i = 0; i < (count - 1); i++)
-	{
-		for (j = i + 1; j < count && strcmp(syms[i].name, syms[j].name) == 0; j++) {
-			/* this is common case for object files having different sections */
-			if (syms[i].type != syms[j].type && is_obj_file(syms[i].name)) {
-				continue;
-			}
-			fprintf(stderr,	"WARNING: addresses 0x%x & 0x%x have the same '%s' name\n",
-				syms[i].address, syms[j].address, syms[i].name);
-			dups++;
-			i = j;
-		}
-	}
-	return dups;
-}
-
-/**
- * Allocate symbol list & names for given number of items.
- * Return allocated list or NULL on failure.
- */
-static symbol_list_t* symbol_list_alloc(int symbols)
-{
-	symbol_list_t *list;
-
-	if (!symbols) {
-		return NULL;
-	}
-	list = calloc(1, sizeof(symbol_list_t));
-	if (list) {
-		list->names = malloc(symbols * sizeof(symbol_t));
-		if (!list->names) {
-			free(list);
-			list = NULL;
-		}
-	}
-	return list;
-}
-
-/**
- * Free symbol list & names.
- */
-static void symbol_list_free(symbol_list_t *list)
-{
-	if (list) {
-		if (list->names) {
-			free(list->names);
-		}
-		free(list);
-	}
-}
-
-/**
- * Return symbol type identifier char
- */
-static char symbol_char(int type)
-{
-	switch (type) {
-	case SYMTYPE_TEXT: return 'T';
-	case SYMTYPE_DATA: return 'D';
-	case SYMTYPE_BSS:  return 'B';
-	case SYMTYPE_ABS:  return 'A';
-	default: return '?';
-	}
-}
-
-/**
- * Return true if symbol name matches internal GCC symbol name,
- * or is object / file name.
- */
-static bool symbol_remove_obj(const char *name)
-{
-	static const char *gcc_sym[] = {
-		"___gnu_compiled_c",
-		"gcc2_compiled."
-	};
-	int i;
-
-	if (is_obj_file(name)) {
-		return true;
-	}
-	/* useless symbols GCC (v2) seems to add to every object? */
-	for (i = 0; i < ARRAY_SIZE(gcc_sym); i++) {
-		if (strcmp(name, gcc_sym[i]) == 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
-
-/**
- * Load symbols of given type and the symbol address addresses from
- * DRI/GST format symbol table, and add given offsets to the addresses:
- *	http://toshyp.atari.org/en/005005.html
- * Return symbols list or NULL for failure.
- */
-static symbol_list_t* symbols_load_dri(FILE *fp, prg_section_t *sections, symtype_t gettype, Uint32 tablesize)
-{
-	int i, count, symbols, invalid;
-	int notypes, dtypes, locals, ofiles;
-	prg_section_t *section;
-	symbol_list_t *list;
-	symtype_t symtype;
-#define DRI_ENTRY_SIZE	14
-	char name[23];
-	Uint16 symid;
-	Uint32 address;
-
-	if (tablesize % DRI_ENTRY_SIZE || !tablesize) {
-		fprintf(stderr, "ERROR: invalid DRI/GST symbol table size %d!\n", tablesize);
-		return NULL;
-	}
-	symbols = tablesize / DRI_ENTRY_SIZE;
-	if (!(list = symbol_list_alloc(symbols))) {
-		return NULL;
-	}
-
-	invalid = dtypes = notypes = ofiles = locals = count = 0;
-	for (i = 1; i <= symbols; i++) {
-		/* read DRI symbol table slot */
-		if (fread(name, 8, 1, fp) != 1 ||
-		    fread(&symid, sizeof(symid), 1, fp) != 1 ||
-		    fread(&address, sizeof(address), 1, fp) != 1) {
-			break;
-		}
-		address = SDL_SwapBE32(address);
-		symid = SDL_SwapBE16(symid);
-
-		/* GST extended DRI symbol format? */
-		if ((symid & 0x0048)) {
-			/* next slot is rest of name */
-			i += 1;
-			if (fread(name+8, 14, 1, fp) != 1) {
-				break;
-			}
-			name[22] = '\0';
-		} else {
-			name[8] = '\0';
-		}
-
-		/* check section */
-		switch (symid & 0xf00) {
-		case 0x0200:
-			symtype = SYMTYPE_TEXT;
-			section = &(sections[0]);
-			break;
-		case 0x0400:
-			symtype = SYMTYPE_DATA;
-			section = &(sections[1]);
-			break;
-		case 0x0100:
-			symtype = SYMTYPE_BSS;
-			section = &(sections[2]);
-			break;
-		default:
-			if ((symid & 0xe000) == 0xe000) {
-				dtypes++;
-				continue;
-			}
-			if ((symid & 0x4000) == 0x4000) {
-				symtype = SYMTYPE_ABS;
-				section = NULL;
-				break;
-			}
-			fprintf(stderr, "WARNING: ignoring symbol '%s' in slot %d of unknown type 0x%x.\n", name, i, symid);
-			invalid++;
-			continue;
-		}
-		if (!(gettype & symtype)) {
-			notypes++;
-			continue;
-		}
-		if (name[0] == '.' && name[1] == 'L') {
-			locals++;
-			continue;
-		}
-		if (symbol_remove_obj(name)) {
-			ofiles++;
-			continue;
-		}
-		if (section) {
-			address += section->offset;
-			if (address > section->end) {
-				fprintf(stderr, "WARNING: ignoring symbol '%s' of type %c in slot %d with invalid offset 0x%x (>= 0x%x).\n",
-					name, symbol_char(symtype), i, address, section->end);
-				invalid++;
-				continue;
-			}
-		}
-		list->names[count].address = address;
-		list->names[count].type = symtype;
-		list->names[count].name = strdup(name);
-		assert(list->names[count].name);
-		count++;
-	}
-	if (i <= symbols) {
-		perror("ERROR: reading symbol failed");
-		symbol_list_free(list);
-		return NULL;
-	}
-	list->symbols = symbols;
-	list->namecount = count;
-
-	if (invalid) {
-		fprintf(stderr, "NOTE: ignored %d invalid symbols.\n", invalid);
-	}
-	if (dtypes) {
-		fprintf(stderr, "NOTE: ignored %d debugging symbols.\n", dtypes);
-	}
-	if (notypes) {
-		fprintf(stderr, "NOTE: ignored %d other unwanted symbol types.\n", notypes);
-	}
-	if (locals) {
-		fprintf(stderr, "NOTE: ignored %d unnamed / local symbols (= name starts with '.L').\n", locals);
-	}
-	if (ofiles) {
-		/* object file path names most likely get truncated and
-		 * as result cause unnecessary symbol name conflicts in
-		 * addition to object file addresses conflicting with
-		 * first symbol in the object file.
-		 */
-		fprintf(stderr, "NOTE: ignored %d object symbols (= name has '/', ends in '.[ao]' or is GCC internal).\n", ofiles);
-	}
-	return list;
-}
-
-
-/**
- * Load symbols of given type and the symbol address addresses from
- * a.out format symbol table, and add given offsets to the addresses.
- * Return symbols list or NULL for failure.
- */
-static symbol_list_t* symbols_load_gnu(FILE *fp, prg_section_t *sections, symtype_t gettype, Uint32 tablesize, Uint32 stroff, Uint32 strsize)
-{
-	size_t slots = tablesize / SIZEOF_STRUCT_NLIST;
-	size_t i;
-	size_t strx;
-	unsigned char *p;
-	char *name;
-	symbol_t *sym;
-	symtype_t symtype;
-	uint32_t address;
-	uint32_t nread;
-	symbol_list_t *list;
-	unsigned char n_type;
-	unsigned char n_other;
-	unsigned short n_desc;
-	static char dummy[] = "<invalid>";
-	int dtypes, locals, ofiles, count, notypes, invalid, weak;
-	prg_section_t *section;
-
-	if (!(list = symbol_list_alloc(slots))) {
-		return NULL;
-	}
-
-	list->strtab = (char *)malloc(tablesize + strsize);
-
-	if (list->strtab == NULL)
-	{
-		symbol_list_free(list);
-		return NULL;
-	}
-
-	nread = fread(list->strtab, tablesize + strsize, 1, fp);
-	if (nread != 1)
-	{
-		perror("ERROR: reading symbols failed");
-		symbol_list_free(list);
-		return NULL;
-	}
-
-	p = (unsigned char *)list->strtab;
-	sym = list->names;
-
-	weak = invalid = dtypes = notypes = ofiles = locals = count = 0;
-	for (i = 0; i < slots; i++)
-	{
-		strx = SDL_SwapBE32(*(Uint32*)p);
-		p += 4;
-		n_type = *p++;
-		n_other = *p++;
-		n_desc = SDL_SwapBE16(*(Uint16*)p);
-		p += 2;
-		address = SDL_SwapBE32(*(Uint32*)p);
-		p += 4;
-		name = dummy;
-		if (!strx) {
-			invalid++;
-			continue;
-		}
-		if (strx >= strsize) {
-			fprintf(stderr, "symbol name index %x out of range\n", (unsigned int)strx);
-			invalid++;
-			continue;
-		}
-		name = list->strtab + strx + stroff;
-
-		if (n_type & N_STAB)
-		{
-			dtypes++;
-			continue;
-		}
-		section = NULL;
-		switch (n_type & (N_TYPE|N_EXT))
-		{
-		case N_UNDF:
-		case N_UNDF|N_EXT:
-			/* shouldn't happen here */
-			weak++;
-			continue;
-		case N_ABS:
-		case N_ABS|N_EXT:
-			symtype = SYMTYPE_ABS;
-			break;
-		case N_TEXT:
-		case N_TEXT|N_EXT:
-			symtype = SYMTYPE_TEXT;
-			section = &(sections[0]);
-			break;
-		case N_DATA:
-		case N_DATA|N_EXT:
-			symtype = SYMTYPE_DATA;
-			section = &(sections[1]);
-			break;
-		case N_BSS:
-		case N_BSS|N_EXT:
-		case N_COMM:
-		case N_COMM|N_EXT:
-			symtype = SYMTYPE_BSS;
-			section = &(sections[2]);
-			break;
-		case N_FN: /* filenames, not object addresses? */
-			dtypes++;
-			continue;
-		case N_SIZE:
-		case N_WARNING:
-		case N_SETA:
-		case N_SETT:
-		case N_SETD:
-		case N_SETB:
-		case N_SETV:
-			dtypes++;
-			continue;
-		case N_WEAKU:
-		case N_WEAKT:
-		case N_WEAKD:
-		case N_WEAKB:
-			weak++;
-			continue;
-		default:
-			fprintf(stderr, "WARNING: ignoring symbol '%s' in slot %u of unknown type 0x%x.\n", name, (unsigned int)i, n_type);
-			invalid++;
-			continue;
-		}
-		/*
-		 * the value of a common symbol is its size, not its address:
-		 */
-		if (((n_type & N_TYPE) == N_COMM) ||
-			(((n_type & N_EXT) && (n_type & N_TYPE) == N_UNDF && address != 0)))
-		{
-			/* if we ever want to know a symbols size, get that here */
-			fprintf(stderr, "WARNING: ignoring common symbol '%s' in slot %u.\n", name, (unsigned int)i);
-			dtypes++;
-			continue;
-		}
-		if (!(gettype & symtype)) {
-			notypes++;
-			continue;
-		}
-		if (name[0] == '.' && name[1] == 'L') {
-			locals++;
-			continue;
-		}
-		if (symbol_remove_obj(name)) {
-			ofiles++;
-			continue;
-		}
-		if (section) {
-			address += sections[0].offset;	/* all GNU symbol addresses are TEXT relative */
-			if (address > section->end) {
-				fprintf(stderr, "WARNING: ignoring symbol '%s' of type %c in slot %u with invalid offset 0x%x (>= 0x%x).\n",
-					name, symbol_char(symtype), (unsigned int)i, address, section->end);
-				invalid++;
-				continue;
-			}
-		}
-		sym->address = address;
-		sym->type = symtype;
-		sym->name = name;
-		sym++;
-		count++;
-		(void) n_desc;
-		(void) n_other;
-	}
-	list->symbols = slots;
-	list->namecount = count;
-
-	if (invalid) {
-		fprintf(stderr, "NOTE: ignored %d invalid symbols.\n", invalid);
-	}
-	if (dtypes) {
-		fprintf(stderr, "NOTE: ignored %d debugging symbols.\n", dtypes);
-	}
-	if (weak) {
-		fprintf(stderr, "NOTE: ignored %d weak / undefined symbols.\n", weak);
-	}
-	if (notypes) {
-		fprintf(stderr, "NOTE: ignored %d other unwanted symbol types.\n", notypes);
-	}
-	if (locals) {
-		fprintf(stderr, "NOTE: ignored %d unnamed / local symbols (= name starts with '.L').\n", locals);
-	}
-	if (ofiles) {
-		/* object file path names most likely get truncated and
-		 * as result cause unnecessary symbol name conflicts in
-		 * addition to object file addresses conflicting with
-		 * first symbol in the object file.
-		 */
-		fprintf(stderr, "NOTE: ignored %d object symbols (= name has '/', ends in '.[ao]' or is GCC internal).\n", ofiles);
-	}
-	return list;
-}
-
-
-/**
- * Print program header information.
- * Return false for unrecognized symbol table type.
- */
-static bool symbols_print_prg_info(Uint32 tabletype, Uint32 prgflags, Uint16 relocflag)
-{
-	static const struct {
-		Uint32 flag;
-		const char *name;
-	} flags[] = {
-		{ 0x0001, "FASTLOAD"   },
-		{ 0x0002, "TTRAMLOAD"  },
-		{ 0x0004, "TTRAMMEM"   },
-		{ 0x0008, "MINIMUM"    }, /* MagiC */
-		{ 0x1000, "SHAREDTEXT" }
-	};
-	const char *info;
-	int i;
-
-	switch (tabletype) {
-	case SYMBOL_FORMAT_MINT: /* "MiNT" */
-		info = "GCC/MiNT executable, GST symbol table";
-		break;
-	case SYMBOL_FORMAT_GNU:	 /* "GNU_" */
-		info = "GCC/MiNT executable, a.out symbol table";
-		break;
-	case SYMBOL_FORMAT_DRI:
-		info = "TOS executable, DRI / GST symbol table";
-		break;
-	default:
-		fprintf(stderr, "ERROR: unknown executable type 0x%x!\n", tabletype);
-		return false;
-	}
-	fprintf(stderr, "%s, reloc=%d, program flags:", info, relocflag);
-	/* bit flags */
-	for (i = 0; i < ARRAY_SIZE(flags); i++) {
-		if (prgflags & flags[i].flag) {
-			fprintf(stderr, " %s", flags[i].name);
-		}
-	}
-	/* memory protection flags */
-	switch((prgflags >> 4) & 3) {
-		case 0:	info = "PRIVATE";  break;
-		case 1: info = "GLOBAL";   break;
-		case 2: info = "SUPER";    break;
-		case 3: info = "READONLY"; break;
-	}
-	fprintf(stderr, " %s (0x%x)\n", info, prgflags);
-	return true;
-}
-
-/**
- * Parse program header and use symbol table format specific
- * loader function to load the symbols.
- * Return symbols list or NULL for failure.
- */
-static symbol_list_t* symbols_load_binary(FILE *fp, symtype_t gettype)
-{
-	Uint32 textlen, datalen, bsslen, start, tablesize, tabletype, prgflags;
-	prg_section_t sections[3];
-	int offset, reads = 0;
-	Uint16 relocflag;
-	symbol_list_t* symbols;
-	Uint32 symoff = 0;
-	Uint32 stroff = 0;
-	Uint32 strsize = 0;
-
-	/* get TEXT, DATA & BSS section sizes */
-	fseek(fp, 2, SEEK_SET);
-	reads += fread(&textlen, sizeof(textlen), 1, fp);
-	textlen = SDL_SwapBE32(textlen);
-	reads += fread(&datalen, sizeof(datalen), 1, fp);
-	datalen = SDL_SwapBE32(datalen);
-	reads += fread(&bsslen, sizeof(bsslen), 1, fp);
-	bsslen = SDL_SwapBE32(bsslen);
-
-	/* get symbol table size & type and check that all reads succeeded */
-	reads += fread(&tablesize, sizeof(tablesize), 1, fp);
-	tablesize = SDL_SwapBE32(tablesize);
-	reads += fread(&tabletype, sizeof(tabletype), 1, fp);
-	tabletype = SDL_SwapBE32(tabletype);
-
-	/* get program header and whether there's reloc table */
-	reads += fread(&prgflags, sizeof(prgflags), 1, fp);
-	prgflags = SDL_SwapBE32(prgflags);
-	reads += fread(&relocflag, sizeof(relocflag), 1, fp);
-	relocflag = SDL_SwapBE32(relocflag);
-	
-	if (reads != 7) {
-		fprintf(stderr, "ERROR: program header reading failed!\n");
-		return NULL;
-	}
-	/*
-	 * check for GNU-style symbol table in aexec header
-	 */
-	if (tabletype == SYMBOL_FORMAT_MINT) { /* MiNT */
-		Uint32 magic1, magic2;
-		Uint32 dummy;
-		Uint32 a_text, a_data, a_bss, a_syms, a_entry, a_trsize, a_drsize;
-		Uint32 g_tparel_pos, g_tparel_size, g_stkpos, g_symbol_format;
-
-		reads  = fread(&magic1, sizeof(magic1), 1, fp);
-		magic1 = SDL_SwapBE32(magic1);
-		reads += fread(&magic2, sizeof(magic2), 1, fp);
-		magic2 = SDL_SwapBE32(magic2);
-		if (reads == 2 &&
-			((magic1 == 0x283a001a && magic2 == 0x4efb48fa) || 	/* Original binutils: move.l 28(pc),d4; jmp 0(pc,d4.l) */
-			 (magic1 == 0x203a001a && magic2 == 0x4efb08fa))) {	/* binutils >= 2.18-mint-20080209: move.l 28(pc),d0; jmp 0(pc,d0.l) */
-			reads += fread(&dummy, sizeof(dummy), 1, fp);	/* skip a_info */
-			reads += fread(&a_text, sizeof(a_text), 1, fp);
-			a_text = SDL_SwapBE32(a_text);
-			reads += fread(&a_data, sizeof(a_data), 1, fp);
-			a_data = SDL_SwapBE32(a_data);
-			reads += fread(&a_bss, sizeof(a_bss), 1, fp);
-			a_bss = SDL_SwapBE32(a_bss);
-			reads += fread(&a_syms, sizeof(a_syms), 1, fp);
-			a_syms = SDL_SwapBE32(a_syms);
-			reads += fread(&a_entry, sizeof(a_entry), 1, fp);
-			a_entry = SDL_SwapBE32(a_entry);
-			reads += fread(&a_trsize, sizeof(a_trsize), 1, fp);
-			a_trsize = SDL_SwapBE32(a_trsize);
-			reads += fread(&a_drsize, sizeof(a_drsize), 1, fp);
-			a_drsize = SDL_SwapBE32(a_drsize);
-			reads += fread(&g_tparel_pos, sizeof(g_tparel_pos), 1, fp);
-			g_tparel_pos = SDL_SwapBE32(g_tparel_pos);
-			reads += fread(&g_tparel_size, sizeof(g_tparel_size), 1, fp);
-			g_tparel_size = SDL_SwapBE32(g_tparel_size);
-			reads += fread(&g_stkpos, sizeof(g_stkpos), 1, fp);
-			g_stkpos = SDL_SwapBE32(g_stkpos);
-			reads += fread(&g_symbol_format, sizeof(g_symbol_format), 1, fp);
-			g_symbol_format = SDL_SwapBE32(g_symbol_format);
-			if (g_symbol_format == 0)
-			{
-				tabletype = SYMBOL_FORMAT_GNU;
-			}
-			if ((a_text + (256 - 28)) != textlen)
-				fprintf(stderr, "warning: inconsistent text segment size %08x != %08x\n", textlen, a_text + (256 - 28));
-			if (a_data != datalen)
-				fprintf(stderr, "warning: inconsistent data segment size %08x != %08x\n", datalen, a_data);
-			if (a_bss != bsslen)
-				fprintf(stderr, "warning: inconsistent bss segment size %08x != %08x\n", bsslen, a_bss);
-			/*
-			 * the symbol table size in the GEMDOS header includes the string table,
-			 * the symbol table size in the exec header does not.
-			 */
-			if (tabletype == SYMBOL_FORMAT_GNU)
-			{
-				strsize = tablesize - a_syms;
-				tablesize = a_syms;
-				stroff = a_syms;
-			}
-
-			textlen = a_text + (256 - 28);
-			datalen = a_data;
-			bsslen = a_bss;
-			symoff = 0x100 + /* sizeof(extended exec header) */
-				a_text +
-				a_data +
-				a_trsize +
-				a_drsize;
-		}
-	}
-	if (!symbols_print_prg_info(tabletype, prgflags, relocflag)) {
-		return NULL;
-	}
-	if (!tablesize) {
-		fprintf(stderr, "ERROR: symbol table missing from the program!\n");
-		return NULL;
-	}
-
-	/* offsets & max sizes for running program TEXT/DATA/BSS section symbols */
-	start = DebugInfo_GetTEXT();
-	if (!start) {
-		fprintf(stderr, "ERROR: no valid program basepage!\n");
-		return NULL;
-	}
-	sections[0].offset = start;
-	sections[0].end = start + textlen;
-	if (DebugInfo_GetTEXTEnd() != sections[0].end) {
-		fprintf(stderr, "ERROR: given program TEXT section size differs from one in RAM!\n");
-		return NULL;
-	}
-
-	start = DebugInfo_GetDATA();
-	sections[1].offset = start;
-	sections[1].end = start + datalen;
-
-	start = DebugInfo_GetBSS();
-	sections[2].offset = start;
-	sections[2].end = start + bsslen;
-
-	if (sections[0].end != sections[1].offset) {
-		fprintf(stderr, "WARNING: DATA start doesn't match TEXT start + size!\n");
-	}
-	if (sections[1].end != sections[2].offset) {
-		fprintf(stderr, "WARNING: BSS start doesn't match DATA start + size!\n");
-	}
-
-	if (tabletype == SYMBOL_FORMAT_GNU) {
-		/* go to start of symbol table */
-		offset = symoff;
-		if (fseek(fp, offset, SEEK_SET) < 0) {
-			perror("ERROR: seeking to symbol table failed");
-			return NULL;
-		}
-		fprintf(stderr, "Trying to load symbol table at offset 0x%x...\n", offset);
-		symbols = symbols_load_gnu(fp, sections, gettype, tablesize, stroff, strsize);
-	} else {
-		/* go to start of symbol table */
-		offset = 0x1C + textlen + datalen;
-		if (fseek(fp, offset, SEEK_SET) < 0) {
-			perror("ERROR: seeking to symbol table failed");
-			return NULL;
-		}
-		fprintf(stderr, "Trying to load symbol table at offset 0x%x...\n", offset);
-		symbols = symbols_load_dri(fp, sections, gettype, tablesize);
-	}
-	return symbols;
-}
-
 /**
  * Load symbols of given type and the symbol address addresses from
  * the given ASCII file and add given offsets to the addresses.
  * Return symbols list or NULL for failure.
  */
-static symbol_list_t* symbols_load_ascii(FILE *fp, Uint32 *offsets, Uint32 maxaddr, symtype_t gettype)
+static symbol_list_t* symbols_load_ascii(FILE *fp, uint32_t *offsets, uint32_t maxaddr,
+					 symtype_t gettype, const symbol_opts_t *opts)
 {
 	symbol_list_t *list;
-	char symchar, buffer[128], name[MAX_SYM_SIZE+1], *buf;
-	int count, line, symbols, weak, unknown, invalid;
-	Uint32 address, offset;
+	char symchar, name[MAX_SYM_SIZE+1];
+	char *buf, buffer[MAX_SYM_SIZE+64];
+	int count, line, symbols;
+	uint32_t address, offset;
+	ignore_counts_t ignore;
 	symtype_t symtype;
 
 	/* count content lines */
@@ -876,8 +105,10 @@ static symbol_list_t* symbols_load_ascii(FILE *fp, Uint32 *offsets, Uint32 maxad
 		return NULL;
 	}
 
+	count = 0;
+	memset(&ignore, 0, sizeof(ignore));
+
 	/* read symbols */
-	invalid = unknown = weak = count = 0;
 	for (line = 1; fgets(buffer, sizeof(buffer), fp); line++) {
 		/* skip comments (AHCC SYM file comments start with '*') */
 		if (*buffer == '#' || *buffer == '*') {
@@ -888,8 +119,10 @@ static symbol_list_t* symbols_load_ascii(FILE *fp, Uint32 *offsets, Uint32 maxad
 		if (!*buf) {
 			continue;
 		}
-		assert(count < symbols); /* file not modified in meanwhile? */
-		if (sscanf(buffer, "%x %c %32[0-9A-Za-z_.-]s", &address, &symchar, name) != 3) {
+		/* file not modified in meanwhile? */
+		assert(count < symbols);
+		/* C++ symbols can contain almost any characters */
+		if (sscanf(buffer, "%x %c %"MAX_SYM_SIZE_S"[^$?@;\n]\n", &address, &symchar, name) != 3) {
 			fprintf(stderr, "WARNING: syntax error on line %d, skipping.\n", line);
 			continue;
 		}
@@ -898,8 +131,13 @@ static symbol_list_t* symbols_load_ascii(FILE *fp, Uint32 *offsets, Uint32 maxad
 			symtype = SYMTYPE_TEXT;
 			offset = offsets[0];
 			break;
+		case 'W':	/* ELF 'nm' code symbol type, weak */
+			symtype = SYMTYPE_WEAK;
+			offset = offsets[0];
+			break;
 		case 'O':	/* AHCC type for _StkSize etc */
-		case 'R':	/* ELF 'nm' symbol type, read only */
+		case 'V':	/* ELF 'nm' data symbol type, weak */
+		case 'R':	/* ELF 'nm' data symbol type, read only */
 		case 'D':
 			symtype = SYMTYPE_DATA;
 			offset = offsets[1];
@@ -912,13 +150,9 @@ static symbol_list_t* symbols_load_ascii(FILE *fp, Uint32 *offsets, Uint32 maxad
 			symtype = SYMTYPE_ABS;
 			offset = 0;
 			break;
-		case 'W':	/* ELF 'nm' symbol type, weak */
-		case 'V':
-			weak++;
-			continue;
 		default:
 			fprintf(stderr, "WARNING: unrecognized symbol type '%c' on line %d, skipping.\n", symchar, line);
-			unknown++;
+			ignore.invalid++;
 			continue;
 		}
 		if (!(gettype & symtype)) {
@@ -927,76 +161,134 @@ static symbol_list_t* symbols_load_ascii(FILE *fp, Uint32 *offsets, Uint32 maxad
 		address += offset;
 		if (address > maxaddr) {
 			fprintf(stderr, "WARNING: invalid address 0x%x on line %d, skipping.\n", address, line);
-			invalid++;
+			ignore.invalid++;
+			continue;
+		}
+		/* whether to ignore symbol based on options and its name & type */
+		if (ignore_symbol(name, symtype, opts, &ignore)) {
 			continue;
 		}
 		list->names[count].address = address;
 		list->names[count].type = symtype;
 		list->names[count].name = strdup(name);
+		list->names[count].name_allocated = true;
 		assert(list->names[count].name);
 		count++;
 	}
-	if (invalid) {
-		fprintf(stderr, "NOTE: ignored %d symbols with invalid addresses.\n", invalid);
-	}
-	if (unknown) {
-		fprintf(stderr, "NOTE: ignored %d symbols with unknown types.\n", unknown);
-	}
-	if (weak) {
-		/* TODO: accept & mark them as weak and silently override them on address conflicts? */
-		fprintf(stderr, "NOTE: ignored %d weak symbols.\n", weak);
-	}
+	show_ignored(&ignore);
 	list->symbols = symbols;
 	list->namecount = count;
 	return list;
 }
 
 /**
- * Remove full duplicates from the sorted names list
- * and trim the allocation to remaining symbols
+ * Return true if symbol name has (C++) data symbol prefix
  */
-static void symbols_trim_names(symbol_list_t* list)
+static bool is_cpp_data_symbol(const char *name)
 {
-	symbol_t *sym = list->names;
-	int i, next, count, dups;
-
-	count = list->namecount;
-	for (dups = i = 0; i < count - 1; i++) {
-		next = i + 1;
-		if (strcmp(sym[i].name, sym[next].name) == 0 &&
-		    sym[i].address == sym[next].address &&
-		    sym[i].type == sym[next].type) {
-			/* remove duplicate */
-			memmove(sym+i, sym+next, (count-next) * sizeof(symbol_t));
-			count--;
-			dups++;
+	static const char *cpp_data[] = {
+		"typeinfo ",
+		"vtable ",
+		"VTT "
+	};
+	int i;
+	for (i = 0; i < ARRAY_SIZE(cpp_data); i++) {
+		size_t len = strlen(cpp_data[i]);
+		if (strncmp(name, cpp_data[i], len) == 0) {
+			return true;
 		}
 	}
-	if (dups || list->namecount < list->symbols) {
-		list->names = realloc(list->names, i * sizeof(symbol_t));
-		assert(list->names);
-		list->namecount = i;
-	}
-	if (dups) {
-		fprintf(stderr, "WARNING: removed %d complete symbol duplicates\n", dups);
-	}
+	return false;
 }
 
 /**
- * Separate TEXT symbols from other symbols in address list.
+ * (C++) compiler can put certain data members to text section, and
+ * some of the weak (C++) symbols are for data. For C++, these can be
+ * recognized by their name.  This changes their type to data, to
+ * speed up text symbol searches in profiler.
  */
-static void symbols_trim_addresses(symbol_list_t* list)
+static int fix_symbol_types(symbol_list_t* list)
+{
+	symbol_t *sym = list->names;
+	int i, count, changed = 0;
+
+	count = list->namecount;
+	for (i = 0; i < count; i++) {
+		if (!(sym[i].type & SYMTYPE_CODE)) {
+			continue;
+		}
+		if (is_cpp_data_symbol(sym[i].name)) {
+			sym[i].type = SYMTYPE_DATA;
+			changed++;
+		}
+		/* TODO: add check also for C++ data member
+		 * names, similar to profiler post-processor
+		 * (requires using regex)?
+		 */
+	}
+	return changed;
+}
+
+/**
+ * Separate code symbols from other symbols in address list.
+ */
+static void symbols_split_addresses(symbol_list_t* list)
 {
 	symbol_t *sym = list->addresses;
+	uint32_t prev = 0;
 	int i;
 
 	for (i = 0; i < list->namecount; i++) {
-		if (sym[i].type != SYMTYPE_TEXT) {
+		if (sym[i].type & ~SYMTYPE_CODE) {
 			break;
 		}
+		if (sym[i].address < prev) {
+			char stype = symbol_char(sym[i].type);
+			fprintf(stderr, "INTERNAL ERROR: %c symbol %d/%d ('%s') at %x < %x (prev addr)\n",
+				stype, i, list->namecount, sym[i].name, sym[i].address, prev);
+			exit(1);
+		}
+		prev = sym[i].address;
 	}
 	list->codecount = i;
 	list->datacount = list->namecount - i;
+}
+
+/**
+ * Set sections to match running process by adding TEXT/DATA/BSS
+ * start addresses to section offsets and ends, and return true if
+ * results match it.
+ */
+static bool update_sections(prg_section_t *sections)
+{
+	/* offsets & max sizes for running program TEXT/DATA/BSS section symbols */
+	uint32_t start = DebugInfo_GetTEXT();
+	if (!start) {
+		fprintf(stderr, "ERROR: no valid program basepage!\n");
+		return false;
+	}
+	sections[0].offset = start;
+	sections[0].end += start;
+	if (DebugInfo_GetTEXTEnd() != sections[0].end) {
+		fprintf(stderr, "ERROR: given program TEXT section size differs from one in RAM!\n");
+		return false;
+	}
+
+	start = DebugInfo_GetDATA();
+	sections[1].offset = start;
+	if (sections[1].offset != sections[0].end) {
+		fprintf(stderr, "WARNING: DATA start doesn't match TEXT start + size!\n");
+	}
+	sections[1].end += start;
+
+	start = DebugInfo_GetBSS();
+	sections[2].offset = start;
+	if (sections[2].offset != sections[1].end) {
+		fprintf(stderr, "WARNING: BSS start doesn't match DATA start + size!\n");
+	}
+	sections[2].end += start;
+
+	return true;
 }
 
 /**
@@ -1004,15 +296,22 @@ static void symbols_trim_addresses(symbol_list_t* list)
  * the given file and add given offsets to the addresses.
  * Return symbols list or NULL for failure.
  */
-static symbol_list_t* Symbols_Load(const char *filename, Uint32 *offsets, Uint32 maxaddr)
+static symbol_list_t* Symbols_Load(const char *filename, uint32_t *offsets, uint32_t maxaddr, symtype_t gettype)
 {
 	symbol_list_t *list;
+	symbol_opts_t opts;
+	int changed, dups;
 	FILE *fp;
 
 	if (!File_Exists(filename)) {
 		fprintf(stderr, "ERROR: file '%s' doesn't exist or isn't readable!\n", filename);
 		return NULL;
 	}
+	memset(&opts, 0, sizeof(opts));
+	opts.no_gccint = true;
+	opts.no_local = true;
+	opts.no_dups = true;
+
 	if (Opt_IsAtariProgram(filename)) {
 		const char *last = CurrentProgramPath;
 		if (!last) {
@@ -1023,12 +322,12 @@ static symbol_list_t* Symbols_Load(const char *filename, Uint32 *offsets, Uint32
 		}
 		fprintf(stderr, "Reading symbols from program '%s' symbol table...\n", filename);
 		fp = fopen(filename, "rb");
-		list = symbols_load_binary(fp, SYMTYPE_ALL);
+		list = symbols_load_binary(fp, &opts, update_sections);
 		SymbolsAreForProgram = true;
 	} else {
 		fprintf(stderr, "Reading 'nm' style ASCII symbols from '%s'...\n", filename);
 		fp = fopen(filename, "r");
-		list = symbols_load_ascii(fp, offsets, maxaddr, SYMTYPE_ALL);
+		list = symbols_load_ascii(fp, offsets, maxaddr, gettype, &opts);
 		SymbolsAreForProgram = false;
 	}
 	fclose(fp);
@@ -1044,37 +343,51 @@ static symbol_list_t* Symbols_Load(const char *filename, Uint32 *offsets, Uint32
 		return NULL;
 	}
 
-	/* sort and trim names list */
-	qsort(list->names, list->namecount, sizeof(symbol_t), symbols_by_name);
-	symbols_trim_names(list);
+	if ((changed = fix_symbol_types(list))) {
+		fprintf(stderr, "Corrected type for %d symbols (text->data).\n", changed);
+	}
+
+	/* first sort symbols by address, _with_ code symbols being first */
+	qsort(list->names, list->namecount, sizeof(symbol_t), symbols_by_address);
+
+	/* remove symbols with duplicate addresses? */
+	if (opts.no_dups) {
+		if ((dups = symbols_trim_names(list))) {
+			fprintf(stderr, "Removed %d symbols in same addresses as other symbols.\n", dups);
+		}
+	}
 
 	/* copy name list to address list */
 	list->addresses = malloc(list->namecount * sizeof(symbol_t));
 	assert(list->addresses);
 	memcpy(list->addresses, list->names, list->namecount * sizeof(symbol_t));
 
-	/* sort address list and trim to contain just TEXT symbols */
-	qsort(list->addresses, list->namecount, sizeof(symbol_t), symbols_by_address);
-	symbols_trim_addresses(list);
+	/* "split" address list to code and other symbols */
+	symbols_split_addresses(list);
 
-	/* skip verbose output when symbols are auto-loaded */
+	/* finally, sort name list by names */
+	qsort(list->names, list->namecount, sizeof(symbol_t), symbols_by_name);
+
+	/* skip more verbose output when symbols are auto-loaded */
 	if (ConfigureParams.Debugger.bSymbolsAutoLoad) {
-		fprintf(stderr, "Skipping duplicate address & symbol name checks when autoload is enabled.\n");
+		fprintf(stderr, "Skipping detailed duplicate symbols reporting when autoload is enabled.\n");
 	} else {
-		/* check for duplicate names */
-		if (symbols_check_names(list->names, list->namecount)) {
-			fprintf(stderr, "-> Hatari symbol expansion can match only one of the addresses for name duplicates!\n");
+		/* check for duplicate addresses? */
+		if (!opts.no_dups) {
+			if ((dups = symbols_check_addresses(list->addresses, list->namecount))) {
+			fprintf(stderr, "%d symbols in same addresses as other symbols.\n", dups);
+			}
 		}
-		/* check for duplicate TEXT & other addresses */
-		if (symbols_check_addresses(list->addresses, list->codecount)) {
-			fprintf(stderr, "-> Hatari profile/disassembly will show only one of the TEXT symbols for given address!\n");
-		}
-		if (symbols_check_addresses(list->addresses + list->codecount, list->datacount)) {
-			fprintf(stderr, "-> Hatari disassembly will show only one of the symbols for given address!\n");
+
+		/* report duplicate names */
+		if ((dups = symbols_check_names(list->names, list->namecount))) {
+			fprintf(stderr, "%d symbols having multiple addresses for the same name.\n"
+				"Symbol expansion will match only one of the addresses for them!\n",
+				dups);
 		}
 	}
 
-	fprintf(stderr, "Loaded %d symbols (%d TEXT) from '%s'.\n",
+	fprintf(stderr, "Loaded %d symbols (%d for code) from '%s'.\n",
 		list->namecount, list->codecount, filename);
 	return list;
 }
@@ -1085,32 +398,17 @@ static symbol_list_t* Symbols_Load(const char *filename, Uint32 *offsets, Uint32
  */
 static void Symbols_Free(symbol_list_t* list)
 {
-	int i;
-
-	if (!list) {
-		return;
-	}
-	assert(list->namecount);
-	if (list->strtab) {
-		free(list->strtab);
-		list->strtab = NULL;
-	} else {
-		for (i = 0; i < list->namecount; i++) {
-			free(list->names[i].name);
-		}
-	}
-	free(list->addresses);
-	free(list->names);
-
-	/* catch use of freed list */
-	list->addresses = NULL;
-	list->codecount = 0;
-	list->datacount = 0;
-	list->names = NULL;
-	list->namecount = 0;
-	free(list);
+	symbol_list_free(list);
 }
 
+/**
+ * Free all symbols (at exit).
+ */
+void Symbols_FreeAll(void)
+{
+	symbol_list_free(CpuSymbolsList);
+	symbol_list_free(DspSymbolsList);
+}
 
 /* ---------------- symbol name completion support ------------------ */
 
@@ -1161,7 +459,7 @@ char* Symbols_MatchCpuCodeAddress(const char *text, int state)
 	if (ConfigureParams.Debugger.bMatchAllSymbols) {
 		return Symbols_MatchByName(CpuSymbolsList, SYMTYPE_ALL, text, state);
 	} else {
-		return Symbols_MatchByName(CpuSymbolsList, SYMTYPE_TEXT, text, state);
+		return Symbols_MatchByName(CpuSymbolsList, SYMTYPE_CODE, text, state);
 	}
 }
 char* Symbols_MatchCpuDataAddress(const char *text, int state)
@@ -1184,7 +482,7 @@ char* Symbols_MatchDspAddress(const char *text, int state)
 }
 char* Symbols_MatchDspCodeAddress(const char *text, int state)
 {
-	return Symbols_MatchByName(DspSymbolsList, SYMTYPE_TEXT, text, state);
+	return Symbols_MatchByName(DspSymbolsList, SYMTYPE_CODE, text, state);
 }
 char* Symbols_MatchDspDataAddress(const char *text, int state)
 {
@@ -1225,7 +523,7 @@ static const symbol_t* Symbols_SearchByName(symbol_t* entries, int count, symtyp
  * Set given symbol's address to variable and return true if one
  * was found from given list.
  */
-static bool Symbols_GetAddress(symbol_list_t* list, symtype_t symtype, const char *name, Uint32 *addr)
+static bool Symbols_GetAddress(symbol_list_t* list, symtype_t symtype, const char *name, uint32_t *addr)
 {
 	const symbol_t *entry;
 	if (!(list && list->names)) {
@@ -1238,11 +536,11 @@ static bool Symbols_GetAddress(symbol_list_t* list, symtype_t symtype, const cha
 	}
 	return false;
 }
-bool Symbols_GetCpuAddress(symtype_t symtype, const char *name, Uint32 *addr)
+bool Symbols_GetCpuAddress(symtype_t symtype, const char *name, uint32_t *addr)
 {
 	return Symbols_GetAddress(CpuSymbolsList, symtype, name, addr);
 }
-bool Symbols_GetDspAddress(symtype_t symtype, const char *name, Uint32 *addr)
+bool Symbols_GetDspAddress(symtype_t symtype, const char *name, uint32_t *addr)
 {
 	return Symbols_GetAddress(DspSymbolsList, symtype, name, addr);
 }
@@ -1251,15 +549,15 @@ bool Symbols_GetDspAddress(symtype_t symtype, const char *name, Uint32 *addr)
 /* ---------------- symbol address -> name search ------------------ */
 
 /**
- * Binary search TEXT symbol by address in given sorted list.
+ * Binary search code symbol by address in given sorted list.
  * Return index for symbol which address matches or precedes
  * the given one.
  */
-static int Symbols_SearchBeforeAddress(symbol_t* entries, int count, Uint32 addr)
+static int Symbols_SearchBeforeAddress(symbol_t* entries, int count, uint32_t addr)
 {
 	/* left, right, middle */
         int l, r, m;
-	Uint32 curr;
+	uint32_t curr;
 
 	/* bisect */
 	l = 0;
@@ -1279,7 +577,7 @@ static int Symbols_SearchBeforeAddress(symbol_t* entries, int count, Uint32 addr
 	return r;
 }
 
-static const char* Symbols_GetBeforeAddress(symbol_list_t *list, Uint32 *addr)
+static const char* Symbols_GetBeforeAddress(symbol_list_t *list, uint32_t *addr)
 {
 	if (!(list && list->addresses)) {
 		return NULL;
@@ -1291,11 +589,11 @@ static const char* Symbols_GetBeforeAddress(symbol_list_t *list, Uint32 *addr)
 	}
 	return NULL;
 }
-const char* Symbols_GetBeforeCpuAddress(Uint32 *addr)
+const char* Symbols_GetBeforeCpuAddress(uint32_t *addr)
 {
 	return Symbols_GetBeforeAddress(CpuSymbolsList, addr);
 }
-const char* Symbols_GetBeforeDspAddress(Uint32 *addr)
+const char* Symbols_GetBeforeDspAddress(uint32_t *addr)
 {
 	return Symbols_GetBeforeAddress(DspSymbolsList, addr);
 }
@@ -1307,11 +605,11 @@ const char* Symbols_GetBeforeDspAddress(Uint32 *addr)
  * Performance critical, called on every instruction
  * when profiling is enabled.
  */
-static int Symbols_SearchByAddress(symbol_t* entries, int count, Uint32 addr)
+static int Symbols_SearchByAddress(symbol_t* entries, int count, uint32_t addr)
 {
 	/* left, right, middle */
         int l, r, m;
-	Uint32 curr;
+	uint32_t curr;
 
 	/* bisect */
 	l = 0;
@@ -1334,21 +632,21 @@ static int Symbols_SearchByAddress(symbol_t* entries, int count, Uint32 addr)
 /**
  * Search symbol in given list by type & address.
  * Return symbol name if there's a match, NULL otherwise.
- * TEXT symbols will be matched before other symbol types.
+ * Code symbols will be matched before other symbol types.
  * Returned name is valid only until next Symbols_* function call.
  */
-static const char* Symbols_GetByAddress(symbol_list_t* list, Uint32 addr, symtype_t type)
+static const char* Symbols_GetByAddress(symbol_list_t* list, uint32_t addr, symtype_t type)
 {
 	if (!(list && list->addresses)) {
 		return NULL;
 	}
-	if (type & SYMTYPE_TEXT) {
+	if (type & SYMTYPE_CODE) {
 		int i = Symbols_SearchByAddress(list->addresses, list->codecount, addr);
 		if (i >= 0) {
 			return list->addresses[i].name;
 		}
 	}
-	if (type & ~SYMTYPE_TEXT) {
+	if (type & ~SYMTYPE_CODE) {
 		int i = Symbols_SearchByAddress(list->addresses + list->codecount, list->datacount, addr);
 		if (i >= 0) {
 			return list->addresses[list->codecount + i].name;
@@ -1356,31 +654,31 @@ static const char* Symbols_GetByAddress(symbol_list_t* list, Uint32 addr, symtyp
 	}
 	return NULL;
 }
-const char* Symbols_GetByCpuAddress(Uint32 addr, symtype_t type)
+const char* Symbols_GetByCpuAddress(uint32_t addr, symtype_t type)
 {
 	return Symbols_GetByAddress(CpuSymbolsList, addr, type);
 }
-const char* Symbols_GetByDspAddress(Uint32 addr, symtype_t type)
+const char* Symbols_GetByDspAddress(uint32_t addr, symtype_t type)
 {
 	return Symbols_GetByAddress(DspSymbolsList, addr, type);
 }
 
 /**
- * Search given list for TEXT symbol by address.
+ * Search given list for code symbol by address.
  * Return symbol index if address matches, -1 otherwise.
  */
-static int Symbols_GetCodeIndex(symbol_list_t* list, Uint32 addr)
+static int Symbols_GetCodeIndex(symbol_list_t* list, uint32_t addr)
 {
 	if (!list) {
 		return -1;
 	}
 	return Symbols_SearchByAddress(list->addresses, list->codecount, addr);
 }
-int Symbols_GetCpuCodeIndex(Uint32 addr)
+int Symbols_GetCpuCodeIndex(uint32_t addr)
 {
 	return Symbols_GetCodeIndex(CpuSymbolsList, addr);
 }
-int Symbols_GetDspCodeIndex(Uint32 addr)
+int Symbols_GetDspCodeIndex(uint32_t addr)
 {
 	return Symbols_GetCodeIndex(DspSymbolsList, addr);
 }
@@ -1400,13 +698,14 @@ int Symbols_DspCodeCount(void)
 /* ---------------- symbol showing ------------------ */
 
 /**
- * Show symbols from given list with paging.
+ * Show symbols matching (optional) 'find' string from given list,
+ * using paging.
  */
-static void Symbols_Show(symbol_list_t* list, const char *sortcmd)
+static void Symbols_Show(symbol_list_t* list, const char *sortcmd, const char *find)
 {
 	symbol_t *entry, *entries;
 	const char *symtype, *sorttype;
-	int i, rows, count;
+	int i, row, rows, count, matches;
 	char symchar;
 	char line[80];
 	
@@ -1419,7 +718,7 @@ static void Symbols_Show(symbol_list_t* list, const char *sortcmd)
 		sorttype = "address";
 		entries = list->addresses;
 		count = list->codecount;
-		symtype = " TEXT";
+		symtype = " TEXT/WEAK";
 	} else if (strcmp("data", sortcmd) == 0) {
 		sorttype = "address";
 		entries = list->addresses + list->codecount;
@@ -1432,12 +731,21 @@ static void Symbols_Show(symbol_list_t* list, const char *sortcmd)
 		symtype = "";
 	}
 	rows = DebugUI_GetPageLines(ConfigureParams.Debugger.nSymbolLines, 20);
+	row = matches = 0;
 
 	for (entry = entries, i = 0; i < count; i++, entry++) {
+		if (find && !strstr(entry->name, find)) {
+			continue;
+		}
+		matches++;
+
 		symchar = symbol_char(entry->type);
 		fprintf(stderr, "0x%08x %c %s\n",
 			entry->address, symchar, entry->name);
-		if ((i + 1) % rows == 0) {
+
+		row++;
+		if (row >= rows) {
+			row = 0;
 			fprintf(stderr, "--- q to exit listing, just enter to continue --- ");
 			if (fgets(line, sizeof(line), stdin) == NULL ||
 				toupper(line[0]) == 'Q') {
@@ -1445,8 +753,8 @@ static void Symbols_Show(symbol_list_t* list, const char *sortcmd)
 			}
 		}
 	}
-	fprintf(stderr, "%d %s%s symbols (of %d) sorted by %s.\n", i,
-		(list == CpuSymbolsList ? "CPU" : "DSP"),
+	fprintf(stderr, "%d %s%s symbols (of %d) sorted by %s.\n",
+		matches, (list == CpuSymbolsList ? "CPU" : "DSP"),
 		symtype, count, sorttype);
 }
 
@@ -1502,6 +810,11 @@ void Symbols_ShowCurrentProgramPath(FILE *fp)
 
 /**
  * Load symbols for last opened program when symbol autoloading is enabled.
+ *
+ * If there's file with same name as the program, but with '.sym'
+ * extension, that overrides / is loaded instead of the symbol table
+ * in the program.
+ *
  * Called when debugger is invoked.
  */
 void Symbols_LoadCurrentProgram(void)
@@ -1513,12 +826,40 @@ void Symbols_LoadCurrentProgram(void)
 	if (CpuSymbolsList || !CurrentProgramPath || AutoLoadFailed) {
 		return;
 	}
-	CpuSymbolsList = Symbols_Load(CurrentProgramPath, NULL, 0);
-	if (!CpuSymbolsList) {
+
+	symbol_list_t *symbols = NULL;
+	int len = strlen(CurrentProgramPath);
+	char *symfile = strdup(CurrentProgramPath);
+	assert(symfile);
+
+	/* if matching file with .sym extension exits, use
+	 * that for symbols, instead of the program itself
+	 */
+	if (len > 3 && symfile[len-4] == '.') {
+		strcpy(symfile + len - 3, "sym");
+		fprintf(stderr, "Checking: %s\n", symfile);
+		if (File_Exists(symfile)) {
+			fprintf(stderr, "Program symbols override file: %s\n", symfile);
+			uint32_t offsets[3];
+			offsets[2] = offsets[1] = 0;
+			offsets[0] = DebugInfo_GetTEXT();
+			const uint32_t maxaddr = DebugInfo_GetTEXTEnd();
+			symbols = Symbols_Load(symfile, offsets, maxaddr,
+					       SYMTYPE_CODE);
+		}
+	}
+	free(symfile);
+	if (!symbols) {
+		symbols = Symbols_Load(CurrentProgramPath, NULL, 0,
+				       SYMTYPE_CODE);
+	}
+	if (!symbols) {
 		AutoLoadFailed = true;
 	} else {
 		AutoLoadFailed = false;
 	}
+	SymbolsAreForProgram = true;
+	CpuSymbolsList = symbols;
 }
 
 /* ---------------- command parsing ------------------ */
@@ -1533,18 +874,23 @@ char *Symbols_MatchCommand(const char *text, int state)
 	static const char* subs[] = {
 		"autoload", "code", "data", "free", "match", "name", "prg"
 	};
-	return DebugUI_MatchHelper(subs, ARRAY_SIZE(subs), text, state);
+	char *ret = DebugUI_MatchHelper(subs, ARRAY_SIZE(subs), text, state);
+	if (ret) {
+		return ret;
+	}
+	return Symbols_MatchCpuAddress(text, state);
 }
 
 const char Symbols_Description[] =
-	"<code|data|name> -- list symbols\n"
+	"<code|data|name> [find] -- list symbols containing 'find'\n"
 	"\tsymbols <prg|free> -- load/free symbols\n"
 	"\t        <filename> [<T offset> [<D offset> <B offset>]]\n"
 	"\tsymbols <autoload|match> -- toggle symbol options\n"
 	"\n"
 	"\t'name' command lists the currently loaded symbols, sorted by name.\n"
 	"\t'code' and 'data' commands list them sorted by address; 'code' lists\n"
-	"\tonly TEXT symbols, 'data' lists DATA/BSS/ABS symbols.\n"
+	"\tonly TEXT/WEAK symbols, 'data' lists DATA/BSS/ABS symbols. If 'find'\n"
+	"\tis given, only symbols with that substring are listed.\n"
 	"\n"
 	"\tBy default, symbols are loaded from the currently executing program's\n"
 	"\tbinary when entering the debugger, IF program is started through\n"
@@ -1581,7 +927,7 @@ const char Symbols_Description[] =
 int Symbols_Command(int nArgc, char *psArgs[])
 {
 	enum { TYPE_CPU, TYPE_DSP } listtype;
-	Uint32 offsets[3], maxaddr;
+	uint32_t offsets[3], maxaddr;
 	symbol_list_t *list;
 	const char *file;
 	int i;
@@ -1637,8 +983,9 @@ int Symbols_Command(int nArgc, char *psArgs[])
 
 	/* show requested symbol types in requested order? */
 	if (strcmp(file, "name") == 0 || strcmp(file, "code") == 0 || strcmp(file, "data") == 0) {
+		const char *find = nArgc > 2 ? psArgs[2] : NULL;
 		list = (listtype == TYPE_DSP ? DspSymbolsList : CpuSymbolsList);
-		Symbols_Show(list, file);
+		Symbols_Show(list, file, find);
 		return DEBUGGER_CMDDONE;
 	}
 
@@ -1676,7 +1023,7 @@ int Symbols_Command(int nArgc, char *psArgs[])
 	}
 
 	/* do actual loading */
-	list = Symbols_Load(file, offsets, maxaddr);
+	list = Symbols_Load(file, offsets, maxaddr, SYMTYPE_ALL);
 	if (list) {
 		if (listtype == TYPE_CPU) {
 			Symbols_Free(CpuSymbolsList);

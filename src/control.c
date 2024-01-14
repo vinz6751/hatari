@@ -56,7 +56,7 @@ static bool bRemotePaused;
 
 /*-----------------------------------------------------------------------*/
 /**
- * Parse key command and synthetize key press/release
+ * Parse key command and synthesize key press/release
  * corresponding to given keycode or character.
  * Return false if parsing failed, true otherwise
  * 
@@ -121,7 +121,7 @@ static bool Control_InsertKey(const char *event)
 
 /*-----------------------------------------------------------------------*/
 /**
- * Parse event name and synthetize corresponding event to emulation
+ * Parse event name and synthesize corresponding event to emulation
  * Return false if name parsing failed, true otherwise
  * 
  * This can be used by external Hatari UI(s) on devices which input
@@ -176,11 +176,14 @@ static bool Control_DeviceAction(const char *name, action_t action)
 		bool *pvalue;
 		void(*init)(void);
 		void(*uninit)(void);
+		void(*reset)(void);
 	} item[] = {
-		{ "printer", &ConfigureParams.Printer.bEnablePrinting, Printer_Init, Printer_UnInit },
-		{ "rs232",   &ConfigureParams.RS232.bEnableRS232, RS232_Init, RS232_UnInit },
-		{ "sccb",    &ConfigureParams.RS232.bEnableSccB, SCC_Init, SCC_UnInit },
-		{ "midi",    &ConfigureParams.Midi.bEnableMidi, Midi_Init, Midi_UnInit },
+		{ "printer", &ConfigureParams.Printer.bEnablePrinting, Printer_Init, Printer_UnInit, NULL },
+		{ "rs232",   &ConfigureParams.RS232.bEnableRS232, RS232_Init, RS232_UnInit, NULL },
+		{ "scca",    &ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_A_SERIAL], SCC_Init, SCC_UnInit, NULL },
+		{ "sccalan", &ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_A_LAN], SCC_Init, SCC_UnInit, NULL },
+		{ "sccb",    &ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_B], SCC_Init, SCC_UnInit, NULL },
+		{ "midi",    &ConfigureParams.Midi.bEnableMidi, Midi_Init, Midi_UnInit, Midi_Reset },
 		{ NULL, NULL, NULL, NULL }
 	};
 	int i;
@@ -204,6 +207,8 @@ static bool Control_DeviceAction(const char *name, action_t action)
 			*(item[i].pvalue) = value;
 			if (value) {
 				item[i].init();
+				if (item[i].reset)
+					item[i].reset();
 			} else {
 				item[i].uninit();
 			}
@@ -239,8 +244,12 @@ static bool Control_SetPath(char *name)
 		{ "soundout", ConfigureParams.Sound.szYMCaptureFileName },
 		{ "rs232in",  ConfigureParams.RS232.szInFileName },
 		{ "rs232out", ConfigureParams.RS232.szOutFileName },
-//		{ "sccbin",   ConfigureParams.RS232.sSccBInFileName },
-		{ "sccbout",  ConfigureParams.RS232.sSccBOutFileName },
+		{ "sccain",   ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_A_SERIAL] },
+		{ "sccaout",  ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_A_SERIAL] },
+		{ "sccalanin",ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_A_LAN] },
+		{ "sccalanout",ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_A_LAN] },
+		{ "sccbin",   ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_B] },
+		{ "sccbout",  ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_B] },
 		{ NULL, NULL }
 	};
 	int i;
@@ -432,7 +441,7 @@ bool Control_CheckUpdates(void)
 		if (bRemotePaused) {
 			/* return only when there're UI events
 			 * (redraws etc) to save battery:
-			 *   http://bugzilla.libsdl.org/show_bug.cgi?id=323
+			 * https://github.com/libsdl-org/SDL-1.2/issues/222
 			 */
 			int uisock = Control_GetUISocket();
 			if (uisock) {
@@ -578,17 +587,11 @@ const char *Control_SetSocket(const char *socketpath)
  * SDL_syswm.h automatically includes everything else needed.
  */
 
-#if HAVE_SDL_CONFIG_H
 #include <SDL_config.h>
-#endif
 
 /* X11 available and SDL_config.h states that SDL supports X11 */
 #if HAVE_X11 && SDL_VIDEO_DRIVER_X11
 #include <SDL_syswm.h>
-
-#if WITH_SDL2
-#define SDL_GetWMInfo(inf) SDL_GetWindowWMInfo(sdlWindow, inf)
-#endif
 
 /**
  * Reparent Hatari window if so requested.  Needs to be done inside
@@ -613,10 +616,8 @@ void Control_ReparentWindow(int width, int height, bool noembed)
 	const char *parent_win_id;
 	SDL_SysWMinfo info;
 	Window wm_win;
-#if WITH_SDL2
 	Window dw1, *dw2;
 	unsigned int nwin;
-#endif
 
 	parent_win_id = getenv("PARENT_WIN_ID");
 	if (!parent_win_id) {
@@ -629,19 +630,15 @@ void Control_ReparentWindow(int width, int height, bool noembed)
 	}
 
 	SDL_VERSION(&info.version);
-	if (!SDL_GetWMInfo(&info)) {
+	if (!SDL_GetWindowWMInfo(sdlWindow, &info)) {
 		Log_Printf(LOG_WARN, "Failed to get SDL_GetWMInfo()\n");
 		return;
 	}
 
 	display = info.info.x11.display;
 	sdl_win = info.info.x11.window;
-#if !WITH_SDL2
-	wm_win = info.info.x11.wmwindow;
-	info.info.x11.lock_func();
-#else
 	XQueryTree(display, sdl_win, &dw1, &wm_win, &dw2, &nwin);
-#endif
+
 	if (noembed)
 	{
 		/* show WM window again */
@@ -668,11 +665,8 @@ void Control_ReparentWindow(int width, int height, bool noembed)
 				perror("Control_ReparentWindow write error");
 		}
 	}
-#if WITH_SDL2
+
 	XSync(display, false);
-#else
-	info.info.x11.unlock_func();
-#endif
 }
 
 /**
@@ -682,7 +676,7 @@ static int Control_GetUISocket(void)
 {
 	SDL_SysWMinfo info;
 	SDL_VERSION(&info.version);
-	if (!SDL_GetWMInfo(&info)) {
+	if (!SDL_GetWindowWMInfo(sdlWindow, &info)) {
 		Log_Printf(LOG_WARN, "Failed to get SDL_GetWMInfo()\n");
 		return 0;
 	}

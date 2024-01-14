@@ -80,13 +80,13 @@ const char IKBD_fileid[] = "Hatari ikbd.c";
 #include "main.h"
 #include "configuration.h"
 #include "ikbd.h"
+#include "cycles.h"
 #include "cycInt.h"
 #include "ioMem.h"
 #include "joy.h"
 #include "m68000.h"
 #include "memorySnapShot.h"
 #include "mfp.h"
-#include "screen.h"
 #include "video.h"
 #include "utils.h"
 #include "acia.h"
@@ -117,7 +117,7 @@ KEYBOARD Keyboard;
 KEYBOARD_PROCESSOR KeyboardProcessor;   /* Keyboard processor details */
 
 /* Pattern of mouse button up/down in ST frames (run off a double-click message) */
-static const Uint8 DoubleClickPattern[] =
+static const uint8_t DoubleClickPattern[] =
 {
 	BUTTON_MOUSE,BUTTON_MOUSE,BUTTON_MOUSE,BUTTON_MOUSE,
 	0,0,0,0,BUTTON_MOUSE,BUTTON_MOUSE,BUTTON_MOUSE,BUTTON_MOUSE
@@ -174,7 +174,7 @@ static bool bMouseEnabledDuringReset;
 */
 
 
-static void IKBD_RunKeyboardCommand(Uint8 aciabyte);
+static void IKBD_RunKeyboardCommand(uint8_t aciabyte);
 
 
 /* List of possible keyboard commands, others are seen as NOPs by keyboard processor */
@@ -215,8 +215,8 @@ static void IKBD_Cmd_ReportJoystickAvailability(void);
 
 /* Keyboard Command */
 static const struct {
-  Uint8 Command;
-  Uint8 NumParameters;
+  uint8_t Command;
+  uint8_t NumParameters;
   void (*pCallFunction)(void);
 } KeyboardCommands[] =
 {
@@ -296,28 +296,28 @@ enum
 
 typedef struct {
 	/* IKBD's SCI internal registers */
-	Uint8		RMCR;					/* reg 0x10 : Rate and Mode Control Register */
-	Uint8		TRCSR;					/* reg 0x11 : Transmit/Receive Control and Status Register */
-	Uint8		TDR;					/* reg 0x12 : Transmit Data Register */
-	Uint8		RDR;					/* reg 0x13 : Receive Data Register */
+	uint8_t		RMCR;					/* reg 0x10 : Rate and Mode Control Register */
+	uint8_t		TRCSR;					/* reg 0x11 : Transmit/Receive Control and Status Register */
+	uint8_t		TDR;					/* reg 0x12 : Transmit Data Register */
+	uint8_t		RDR;					/* reg 0x13 : Receive Data Register */
 
 	int		SCI_TX_State;
-	Uint8		TSR;					/* Transmit Shift Register */
-	Uint8		SCI_TX_Size;				/* How many data bits left to transmit in TSR (8 .. 0) */
+	uint8_t		TSR;					/* Transmit Shift Register */
+	uint8_t		SCI_TX_Size;				/* How many data bits left to transmit in TSR (8 .. 0) */
 	int		SCI_TX_Delay;				/* If >0, wait SCI_TX_Delay calls of IKBD_SCI_Set_Line_TX before */
 								/* transferring a new byte in TDR (to simulate the time needed by */
 								/* the IKBD to process a command and return the result) */
 
 	int		SCI_RX_State;
-	Uint8		RSR;					/* Receive Shift Register */
-	Uint8		SCI_RX_Size;				/* How many bits left to receive in RSR (8 .. 0) */
+	uint8_t		RSR;					/* Receive Shift Register */
+	uint8_t		SCI_RX_Size;				/* How many bits left to receive in RSR (8 .. 0) */
 
 
 	/* Date/Time is stored in the IKBD using 6 bytes in BCD format */
 	/* Clock is cleared on cold reset, but keeps its values on warm reset */
 	/* Original RAM location :  $82=year $83=month $84=day $85=hour $86=minute $87=second */
-	Uint8		Clock[ 6 ];
-	Sint64		Clock_micro;				/* Incremented every VBL to update Clock[] every second */
+	uint8_t		Clock[ 6 ];
+	int64_t		Clock_micro;				/* Incremented every VBL to update Clock[] every second */
 
 } IKBD_STRUCT;
 
@@ -332,19 +332,19 @@ static void	IKBD_Init_Pointers ( ACIA_STRUCT *pACIA_IKBD );
 static void	IKBD_Boot_ROM ( bool ClearAllRAM );
 
 static void	IKBD_SCI_Get_Line_RX ( int rx_bit );
-static Uint8	IKBD_SCI_Set_Line_TX ( void );
+static uint8_t	IKBD_SCI_Set_Line_TX ( void );
 
-static void	IKBD_Process_RDR ( Uint8 RDR );
+static void	IKBD_Process_RDR ( uint8_t RDR );
 static void	IKBD_Check_New_TDR ( void );
 
 static bool	IKBD_OutputBuffer_CheckFreeCount ( int Nb );
 static int	IKBD_Delay_Random ( int min , int max );
-static void	IKBD_Cmd_Return_Byte ( Uint8 Data );
-static void	IKBD_Cmd_Return_Byte_Delay ( Uint8 Data , int Delay_Cycles );
-static void	IKBD_Send_Byte_Delay ( Uint8 Data , int Delay_Cycles );
+static void	IKBD_Cmd_Return_Byte ( uint8_t Data );
+static void	IKBD_Cmd_Return_Byte_Delay ( uint8_t Data , int Delay_Cycles );
+static void	IKBD_Send_Byte_Delay ( uint8_t Data , int Delay_Cycles );
 
-static bool	IKBD_BCD_Check ( Uint8 val );
-static Uint8	IKBD_BCD_Adjust ( Uint8 val );
+static bool	IKBD_BCD_Check ( uint8_t val );
+static uint8_t	IKBD_BCD_Adjust ( uint8_t val );
 
 
 /*-----------------------------------------------------------------------*/
@@ -352,44 +352,44 @@ static Uint8	IKBD_BCD_Adjust ( Uint8 val );
 /* sent to the IKBD's RAM.						*/
 /*-----------------------------------------------------------------------*/
 
-static void IKBD_LoadMemoryByte ( Uint8 aciabyte );
+static void IKBD_LoadMemoryByte ( uint8_t aciabyte );
 
-static void IKBD_CustomCodeHandler_CommonBoot ( Uint8 aciabyte );
+static void IKBD_CustomCodeHandler_CommonBoot ( uint8_t aciabyte );
 
 static void IKBD_CustomCodeHandler_FroggiesMenu_Read ( void );
-static void IKBD_CustomCodeHandler_FroggiesMenu_Write ( Uint8 aciabyte );
+static void IKBD_CustomCodeHandler_FroggiesMenu_Write ( uint8_t aciabyte );
 static void IKBD_CustomCodeHandler_Transbeauce2Menu_Read ( void );
-static void IKBD_CustomCodeHandler_Transbeauce2Menu_Write ( Uint8 aciabyte );
+static void IKBD_CustomCodeHandler_Transbeauce2Menu_Write ( uint8_t aciabyte );
 static void IKBD_CustomCodeHandler_DragonnelsMenu_Read ( void );
-static void IKBD_CustomCodeHandler_DragonnelsMenu_Write ( Uint8 aciabyte );
+static void IKBD_CustomCodeHandler_DragonnelsMenu_Write ( uint8_t aciabyte );
 static void IKBD_CustomCodeHandler_ChaosAD_Read ( void );
-static void IKBD_CustomCodeHandler_ChaosAD_Write ( Uint8 aciabyte );
+static void IKBD_CustomCodeHandler_ChaosAD_Write ( uint8_t aciabyte );
 static void IKBD_CustomCodeHandler_AudioSculpture_Color_Read ( void );
 static void IKBD_CustomCodeHandler_AudioSculpture_Mono_Read ( void );
 static void IKBD_CustomCodeHandler_AudioSculpture_Read ( bool ColorMode );
-static void IKBD_CustomCodeHandler_AudioSculpture_Write ( Uint8 aciabyte );
+static void IKBD_CustomCodeHandler_AudioSculpture_Write ( uint8_t aciabyte );
 
 
 static int	MemoryLoadNbBytesTotal = 0;		/* total number of bytes to send with the command 0x20 */
 static int	MemoryLoadNbBytesLeft = 0;		/* number of bytes that remain to be sent  */
-static Uint32	MemoryLoadCrc = 0xffffffff;		/* CRC of the bytes sent to the IKBD */
+static uint32_t	MemoryLoadCrc = 0xffffffff;		/* CRC of the bytes sent to the IKBD */
 static int	MemoryExeNbBytes = 0;			/* current number of bytes sent to the IKBD when IKBD_ExeMode is true */
 
 static void	(*pIKBD_CustomCodeHandler_Read) ( void );
-static void	(*pIKBD_CustomCodeHandler_Write) ( Uint8 );
+static void	(*pIKBD_CustomCodeHandler_Write) ( uint8_t );
 static bool	IKBD_ExeMode = false;
 
-static Uint8	ScanCodeState[ 128 ];			/* state of each key : 0=released 1=pressed */
+static uint8_t	ScanCodeState[ 128 ];			/* state of each key : 0=released 1=pressed */
 
 /* This array contains all known custom 6301 programs, with their CRC */
 static const struct
 {
-	Uint32		LoadMemCrc;			/* CRC of the bytes sent using the command 0x20 */
-	void		(*ExeBootHandler) ( Uint8 );	/* function handling write to $fffc02 during the 'boot' mode */
+	uint32_t		LoadMemCrc;			/* CRC of the bytes sent using the command 0x20 */
+	void		(*ExeBootHandler) ( uint8_t );	/* function handling write to $fffc02 during the 'boot' mode */
 	int		MainProgNbBytes;		/* number of bytes of the main 6301 program */
-	Uint32		MainProgCrc;			/* CRC of the main 6301 program */
+	uint32_t		MainProgCrc;			/* CRC of the main 6301 program */
 	void		(*ExeMainHandler_Read) ( void );/* function handling read to $fffc02 in the main 6301 program */
-	void		(*ExeMainHandler_Write) ( Uint8 ); /* function handling write to $fffc02 in the main 6301 program */
+	void		(*ExeMainHandler_Write) ( uint8_t ); /* function handling write to $fffc02 in the main 6301 program */
 	const char	*Name;
 }
 CustomCodeDefinitions[] =
@@ -564,6 +564,7 @@ static void	IKBD_Boot_ROM ( bool ClearAllRAM )
 	KeyboardProcessor.Mouse.DeltaX = KeyboardProcessor.Mouse.DeltaY = 0;
 	KeyboardProcessor.Mouse.XScale = KeyboardProcessor.Mouse.YScale = 0;
 	KeyboardProcessor.Mouse.XThreshold = KeyboardProcessor.Mouse.YThreshold = 1;
+	KeyboardProcessor.Mouse.KeyCodeDeltaX = KeyboardProcessor.Mouse.KeyCodeDeltaY = 1;
 	KeyboardProcessor.Mouse.YAxis = 1;          /* Y origin at top */
 	KeyboardProcessor.Mouse.Action = 0;
 
@@ -824,10 +825,10 @@ static void	IKBD_SCI_Get_Line_RX ( int rx_bit )
  * Send a bit on the IKBD SCI's TX line (this is connected to the ACIA's RX)
  * When the SCI is idle, we send '1' stop bits.
  */
-static Uint8	IKBD_SCI_Set_Line_TX ( void )
+static uint8_t	IKBD_SCI_Set_Line_TX ( void )
 {
 	int	StateNext;
-	Uint8	tx_bit = 1;
+	uint8_t	tx_bit = 1;
 
 
 	LOG_TRACE ( TRACE_IKBD_ACIA, "ikbd acia tx_state=%d tx_delay=%d VBL=%d HBL=%d\n" , pIKBD->SCI_TX_State , pIKBD->SCI_TX_Delay ,
@@ -886,7 +887,7 @@ static Uint8	IKBD_SCI_Set_Line_TX ( void )
  * Depending on the IKBD's emulation mode, we either pass it to the standard
  * ROM's emulation layer, or we pass it to the custom handlers.
  */
-static void	IKBD_Process_RDR ( Uint8 RDR )
+static void	IKBD_Process_RDR ( uint8_t RDR )
 {
 	pIKBD->TRCSR &= ~IKBD_TRCSR_BIT_RDRF;				/* RDR was read */
 
@@ -978,7 +979,7 @@ static int	IKBD_Delay_Random ( int min , int max )
  * IKBD_Cmd_xxx command. If we're using a custom handler, we should filter
  * these bytes (keyboard, mouse, joystick) as they don't come from the custom handler.
  */
-static void	IKBD_Cmd_Return_Byte ( Uint8 Data )
+static void	IKBD_Cmd_Return_Byte ( uint8_t Data )
 {
 	if ( IKBD_ExeMode )					/* If IKBD is executing custom code, don't add */
 		return;						/* anything to the buffer that comes from an IKBD's command */
@@ -991,7 +992,7 @@ static void	IKBD_Cmd_Return_Byte ( Uint8 Data )
  * Same as IKBD_Cmd_Return_Byte, but with a delay before transmitting
  * the byte.
  */
-static void	IKBD_Cmd_Return_Byte_Delay ( Uint8 Data , int Delay_Cycles )
+static void	IKBD_Cmd_Return_Byte_Delay ( uint8_t Data , int Delay_Cycles )
 {
 	if ( IKBD_ExeMode )					/* If IKBD is executing custom code, don't add */
 		return;						/* anything to the buffer that comes from an IKBD's command */
@@ -1012,7 +1013,7 @@ static void	IKBD_Cmd_Return_Byte_Delay ( Uint8 Data , int Delay_Cycles )
  * in 68000 cycles at 8 MHz and should be converted to a number of bits
  * at the chosen baud rate.
  */
-static void	IKBD_Send_Byte_Delay ( Uint8 Data , int Delay_Cycles )
+static void	IKBD_Send_Byte_Delay ( uint8_t Data , int Delay_Cycles )
 {
 //fprintf ( stderr , "send byte=0x%02x delay=%d\n" , Data , Delay_Cycles );
 	/* Is keyboard initialised yet ? Ignore any bytes until it is */
@@ -1060,7 +1061,7 @@ static void	IKBD_Send_Byte_Delay ( Uint8 Data , int Delay_Cycles )
 /**
  * Check that the value is a correctly encoded BCD number
  */
-static bool	IKBD_BCD_Check ( Uint8 val )
+static bool	IKBD_BCD_Check ( uint8_t val )
 {
 	if ( ( ( val & 0x0f ) > 0x09 )
 	  || ( ( val & 0xf0 ) > 0x90 ) )
@@ -1078,7 +1079,7 @@ static bool	IKBD_BCD_Check ( Uint8 val )
  * in the 0-9 range.
  */
 
-static Uint8	IKBD_BCD_Adjust ( Uint8 val )
+static uint8_t	IKBD_BCD_Adjust ( uint8_t val )
 {
 	if ( ( val & 0x0f ) > 0x09 )	/* low nibble no more in BCD */
 		val += 0x06;		/* clear bit 4 and add 1 to high nibble */
@@ -1115,17 +1116,17 @@ static Uint8	IKBD_BCD_Adjust ( Uint8 val )
  */
 void	IKBD_UpdateClockOnVBL ( void )
 {
-	Sint64	FrameDuration_micro;
+	int64_t	FrameDuration_micro;
 	int	i;
-	Uint8	val;
-	Uint8	max;
-	Uint8	year;
-	Uint8	month;
+	uint8_t	val;
+	uint8_t	max;
+	uint8_t	year;
+	uint8_t	month;
 
 	/* Max value for year/month/day/hour/minute/second */
-	Uint8	val_max[ 6 ] = { 0xFF , 0x13 , 0x00 , 0x24 , 0x60 , 0x60 };
+	uint8_t	val_max[ 6 ] = { 0xFF , 0x13 , 0x00 , 0x24 , 0x60 , 0x60 };
 	/* Max number of days per month ; 18 entries, because the index for this array is a BCD coded month */
-	Uint8	day_max[ 18 ] = { 0x32, 0x29, 0x32, 0x31, 0x32, 0x31, 0x32, 0x32, 0x31, 0,0,0,0,0,0, 0x32, 0x31, 0x32 };
+	uint8_t	day_max[ 18 ] = { 0x32, 0x29, 0x32, 0x31, 0x32, 0x31, 0x32, 0x32, 0x31, 0,0,0,0,0,0, 0x32, 0x31, 0x32 };
 
 
 	/* Check if more than 1 second passed since last increment of date/time */
@@ -1346,18 +1347,18 @@ static void IKBD_DuplicateMouseFireButtons(void)
 	{
 		/* If pressed right mouse button, should go to joystick 1 */
 		if (Keyboard.bRButtonDown&BUTTON_MOUSE)
-			KeyboardProcessor.Joy.JoyData[1] |= 0x80;
+			KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK1] |= ATARIJOY_BITMASK_FIRE;
 		/* And left mouse button, should go to joystick 0 */
 		if (Keyboard.bLButtonDown&BUTTON_MOUSE)
-			KeyboardProcessor.Joy.JoyData[0] |= 0x80;
+			KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK0] |= ATARIJOY_BITMASK_FIRE;
 	}
 	/* If mouse is on, joystick 1 fire button goes to the mouse instead */
 	else
 	{
 		/* Is fire button pressed? */
-		if (KeyboardProcessor.Joy.JoyData[1]&0x80)
+		if (KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK1]&ATARIJOY_BITMASK_FIRE)
 		{
-			KeyboardProcessor.Joy.JoyData[1] &= 0x7f;  /* Clear fire button bit */
+			KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK1] &= ~ATARIJOY_BITMASK_FIRE;  /* Clear fire button bit */
 			Keyboard.bRButtonDown |= BUTTON_JOYSTICK;  /* Mimic right mouse button */
 		}
 		else
@@ -1369,25 +1370,31 @@ static void IKBD_DuplicateMouseFireButtons(void)
 /*-----------------------------------------------------------------------*/
 /**
  * Send 'relative' mouse position
+ * In case DeltaX or DeltaY are more than 127 units, we send the position
+ * using several packets (with a while loop)
  */
 static void IKBD_SendRelMousePacket(void)
 {
 	int ByteRelX,ByteRelY;
-	Uint8 Header;
+	uint8_t Header;
 
-	if ( (KeyboardProcessor.Mouse.DeltaX!=0) || (KeyboardProcessor.Mouse.DeltaY!=0)
-	        || (!IKBD_ButtonsEqual(Keyboard.bOldLButtonDown,Keyboard.bLButtonDown)) || (!IKBD_ButtonsEqual(Keyboard.bOldRButtonDown,Keyboard.bRButtonDown)) )
+	while ( true )
 	{
-		/* Send packet to keyboard process */
-		while (true)
-		{
-			ByteRelX = KeyboardProcessor.Mouse.DeltaX;
-			if (ByteRelX>127)  ByteRelX = 127;
-			if (ByteRelX<-128)  ByteRelX = -128;
-			ByteRelY = KeyboardProcessor.Mouse.DeltaY;
-			if (ByteRelY>127)  ByteRelY = 127;
-			if (ByteRelY<-128)  ByteRelY = -128;
+		ByteRelX = KeyboardProcessor.Mouse.DeltaX;
+		if ( ByteRelX > 127 )		ByteRelX = 127;
+		if ( ByteRelX < -128 )		ByteRelX = -128;
 
+		ByteRelY = KeyboardProcessor.Mouse.DeltaY;
+		if ( ByteRelY > 127 )		ByteRelY = 127;
+		if ( ByteRelY < -128 )		ByteRelY = -128;
+
+		if ( ( ( ByteRelX < 0 ) && ( ByteRelX <= -KeyboardProcessor.Mouse.XThreshold ) )
+		  || ( ( ByteRelX > 0 ) && ( ByteRelX >= KeyboardProcessor.Mouse.XThreshold ) )
+		  || ( ( ByteRelY < 0 ) && ( ByteRelY <= -KeyboardProcessor.Mouse.YThreshold ) )
+		  || ( ( ByteRelY > 0 ) && ( ByteRelY >= KeyboardProcessor.Mouse.YThreshold ) )
+		  || ( !IKBD_ButtonsEqual(Keyboard.bOldLButtonDown,Keyboard.bLButtonDown ) )
+		  || ( !IKBD_ButtonsEqual(Keyboard.bOldRButtonDown,Keyboard.bRButtonDown ) ) )
+		{
 			Header = 0xf8;
 			if (Keyboard.bLButtonDown)
 				Header |= 0x02;
@@ -1404,13 +1411,13 @@ static void IKBD_SendRelMousePacket(void)
 			KeyboardProcessor.Mouse.DeltaX -= ByteRelX;
 			KeyboardProcessor.Mouse.DeltaY -= ByteRelY;
 
-			if ( (KeyboardProcessor.Mouse.DeltaX==0) && (KeyboardProcessor.Mouse.DeltaY==0) )
-				break;
-
 			/* Store buttons for next time around */
 			Keyboard.bOldLButtonDown = Keyboard.bLButtonDown;
 			Keyboard.bOldRButtonDown = Keyboard.bRButtonDown;
 		}
+
+		else
+			break;					/* exit the while loop */
 	}
 }
 
@@ -1421,14 +1428,14 @@ static void IKBD_SendRelMousePacket(void)
 static void IKBD_GetJoystickData(void)
 {
 	/* Joystick 1 */
-	KeyboardProcessor.Joy.JoyData[1] = Joy_GetStickData(1);
+	KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK1] = Joy_GetStickData(JOYID_JOYSTICK1);
 
 	/* If mouse is on, joystick 0 is not connected */
 	if (KeyboardProcessor.MouseMode==AUTOMODE_OFF
 	        || (bBothMouseAndJoy && KeyboardProcessor.MouseMode==AUTOMODE_MOUSEREL))
-		KeyboardProcessor.Joy.JoyData[0] = Joy_GetStickData(0);
+		KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK0] = Joy_GetStickData(JOYID_JOYSTICK0);
 	else
-		KeyboardProcessor.Joy.JoyData[0] = 0x00;
+		KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK0] = 0x00;
 }
 
 
@@ -1438,30 +1445,30 @@ static void IKBD_GetJoystickData(void)
  */
 static void IKBD_SendAutoJoysticks(void)
 {
-	Uint8 JoyData;
+	uint8_t JoyData;
 
 	/* Did joystick 0/mouse change? */
-	JoyData = KeyboardProcessor.Joy.JoyData[0];
-	if (JoyData!=KeyboardProcessor.Joy.PrevJoyData[0])
+	JoyData = KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK0];
+	if (JoyData!=KeyboardProcessor.Joy.PrevJoyData[JOYID_JOYSTICK0])
 	{
 		if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
 		{
 			IKBD_Cmd_Return_Byte (0xFE);			/* Joystick 0 / Mouse */
 			IKBD_Cmd_Return_Byte (JoyData);
 		}
-		KeyboardProcessor.Joy.PrevJoyData[0] = JoyData;
+		KeyboardProcessor.Joy.PrevJoyData[JOYID_JOYSTICK0] = JoyData;
 	}
 
 	/* Did joystick 1(default) change? */
-	JoyData = KeyboardProcessor.Joy.JoyData[1];
-	if (JoyData!=KeyboardProcessor.Joy.PrevJoyData[1])
+	JoyData = KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK1];
+	if (JoyData!=KeyboardProcessor.Joy.PrevJoyData[JOYID_JOYSTICK1])
 	{
 		if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
 		{
 			IKBD_Cmd_Return_Byte (0xFF);			/* Joystick 1 */
 			IKBD_Cmd_Return_Byte (JoyData);
 		}
-		KeyboardProcessor.Joy.PrevJoyData[1] = JoyData;
+		KeyboardProcessor.Joy.PrevJoyData[JOYID_JOYSTICK1] = JoyData;
 	}
 }
 
@@ -1475,14 +1482,14 @@ static void IKBD_SendAutoJoysticks(void)
  */
 static void IKBD_SendAutoJoysticksMonitoring(void)
 {
-	Uint8 Byte1;
-	Uint8 Byte2;
+	uint8_t Byte1;
+	uint8_t Byte2;
 
-	Byte1 = ( ( KeyboardProcessor.Joy.JoyData[0] & 0x80 ) >> 6 )
-		| ( ( KeyboardProcessor.Joy.JoyData[1] & 0x80 ) >> 7 );
+	Byte1 = ( ( KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK0] & ATARIJOY_BITMASK_FIRE ) >> 6 )
+		| ( ( KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK1] & ATARIJOY_BITMASK_FIRE ) >> 7 );
 
-	Byte2 = ( ( KeyboardProcessor.Joy.JoyData[0] & 0x0f ) << 4 )
-		| ( KeyboardProcessor.Joy.JoyData[1] & 0x0f );
+	Byte2 = ( ( KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK0] & 0x0f ) << 4 )
+		| ( KeyboardProcessor.Joy.JoyData[JOYID_JOYSTICK1] & 0x0f );
 
 	IKBD_Cmd_Return_Byte (Byte1);
 	IKBD_Cmd_Return_Byte (Byte2);
@@ -1587,45 +1594,52 @@ static void IKBD_SendCursorMousePacket(void)
 	while ( (i<10) && ((KeyboardProcessor.Mouse.DeltaX!=0) || (KeyboardProcessor.Mouse.DeltaY!=0)
 	                   || (!IKBD_ButtonsEqual(Keyboard.bOldLButtonDown,Keyboard.bLButtonDown)) || (!IKBD_ButtonsEqual(Keyboard.bOldRButtonDown,Keyboard.bRButtonDown))) )
 	{
-		/* Left? */
-		if (KeyboardProcessor.Mouse.DeltaX<0)
+		if ( KeyboardProcessor.Mouse.DeltaX != 0 )
 		{
-			if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
+			/* Left? */
+			if (KeyboardProcessor.Mouse.DeltaX <= -KeyboardProcessor.Mouse.KeyCodeDeltaX)
 			{
-				IKBD_Cmd_Return_Byte (75);		/* Left cursor */
-				IKBD_Cmd_Return_Byte (75|0x80);
+				if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
+				{
+					IKBD_Cmd_Return_Byte (75);		/* Left cursor */
+					IKBD_Cmd_Return_Byte (75|0x80);
+				}
+				KeyboardProcessor.Mouse.DeltaX += KeyboardProcessor.Mouse.KeyCodeDeltaX;
 			}
-			KeyboardProcessor.Mouse.DeltaX++;
+			/* Right? */
+			if (KeyboardProcessor.Mouse.DeltaX >= KeyboardProcessor.Mouse.KeyCodeDeltaX)
+			{
+				if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
+				{
+					IKBD_Cmd_Return_Byte (77);		/* Right cursor */
+					IKBD_Cmd_Return_Byte (77|0x80);
+				}
+				KeyboardProcessor.Mouse.DeltaX -= KeyboardProcessor.Mouse.KeyCodeDeltaX;
+			}
 		}
-		/* Right? */
-		if (KeyboardProcessor.Mouse.DeltaX>0)
+
+		if ( KeyboardProcessor.Mouse.DeltaY != 0 )
 		{
-			if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
+			/* Up? */
+			if (KeyboardProcessor.Mouse.DeltaY <= -KeyboardProcessor.Mouse.KeyCodeDeltaY)
 			{
-				IKBD_Cmd_Return_Byte (77);		/* Right cursor */
-				IKBD_Cmd_Return_Byte (77|0x80);
+				if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
+				{
+					IKBD_Cmd_Return_Byte (72);		/* Up cursor */
+					IKBD_Cmd_Return_Byte (72|0x80);
+				}
+				KeyboardProcessor.Mouse.DeltaY += KeyboardProcessor.Mouse.KeyCodeDeltaY;
 			}
-			KeyboardProcessor.Mouse.DeltaX--;
-		}
-		/* Up? */
-		if (KeyboardProcessor.Mouse.DeltaY<0)
-		{
-			if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
+			/* Down? */
+			if (KeyboardProcessor.Mouse.DeltaY >= KeyboardProcessor.Mouse.KeyCodeDeltaY)
 			{
-				IKBD_Cmd_Return_Byte (72);		/* Up cursor */
-				IKBD_Cmd_Return_Byte (72|0x80);
+				if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
+				{
+					IKBD_Cmd_Return_Byte (80);		/* Down cursor */
+					IKBD_Cmd_Return_Byte (80|0x80);
+				}
+				KeyboardProcessor.Mouse.DeltaY -= KeyboardProcessor.Mouse.KeyCodeDeltaY;
 			}
-			KeyboardProcessor.Mouse.DeltaY++;
-		}
-		/* Down? */
-		if (KeyboardProcessor.Mouse.DeltaY>0)
-		{
-			if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
-			{
-				IKBD_Cmd_Return_Byte (80);		/* Down cursor */
-				IKBD_Cmd_Return_Byte (80|0x80);
-			}
-			KeyboardProcessor.Mouse.DeltaY--;
 		}
 
 		if ( IKBD_OutputBuffer_CheckFreeCount ( 2 ) )
@@ -1697,21 +1711,16 @@ static void IKBD_SendAutoKeyboardCommands(void)
 	Keyboard.bOldRButtonDown = Keyboard.bRButtonDown;
 
 	/* Send joystick button '2' as 'Space bar' key - MUST do here so does not get mixed up in middle of joystick packets! */
-	if (JoystickSpaceBar)
+	if (JoystickSpaceBar==JOYSTICK_SPACE_DOWN)
 	{
-		/* As we simulating space bar? */
-		if (JoystickSpaceBar==JOYSTICK_SPACE_DOWN)
-		{
-			IKBD_PressSTKey(57, true);         /* Press */
-			JoystickSpaceBar = JOYSTICK_SPACE_UP;
-		}
-		else   //if (JoystickSpaceBar==JOYSTICK_SPACE_UP) {
-		{
-			IKBD_PressSTKey(57, false);       /* Release */
-			JoystickSpaceBar = false;         /* Complete */
-		}
+		IKBD_PressSTKey(57, true);                /* Press */
+		JoystickSpaceBar = JOYSTICK_SPACE_DOWNED; /* Pressed */
 	}
-
+	else if (JoystickSpaceBar==JOYSTICK_SPACE_UP)
+	{
+		IKBD_PressSTKey(57, false);               /* Release */
+		JoystickSpaceBar = JOYSTICK_SPACE_NULL;   /* Complete */
+	}
 
 	/* If we're executing a custom IKBD program, call it to process the key/mouse/joystick event */
 	if ( IKBD_ExeMode && pIKBD_CustomCodeHandler_Read )
@@ -1723,7 +1732,7 @@ static void IKBD_SendAutoKeyboardCommands(void)
 /**
  * When press/release key under host OS, execute this function.
  */
-void IKBD_PressSTKey(Uint8 ScanCode, bool bPress)
+void IKBD_PressSTKey(uint8_t ScanCode, bool bPress)
 {
 	/* If IKBD is monitoring only joysticks, don't report key */
 	if ( KeyboardProcessor.JoystickMode == AUTOMODE_JOYSTICK_MONITORING )
@@ -1785,8 +1794,6 @@ void IKBD_InterruptHandler_AutoSend(void)
 	/* Did user try to quit? */
 	if (bQuitProgram)
 	{
-		/* Pass NULL interrupt function to quit cleanly */
-		CycInt_AddAbsoluteInterrupt(4, INT_CPU_CYCLE, INTERRUPT_NULL);
 		/* Assure that CPU core shuts down */
 		M68000_SetSpecial(SPCFLAG_BRK);
 		return;
@@ -1843,7 +1850,7 @@ static void IKBD_CheckResetDisableBug(void)
  * - In case the first byte read is not a valid command then IKBD does nothing
  *   (it doesn't return any byte to indicate the command was not recognized)
  */
-static void IKBD_RunKeyboardCommand(Uint8 aciabyte)
+static void IKBD_RunKeyboardCommand(uint8_t aciabyte)
 {
 	int i=0;
 
@@ -2053,7 +2060,7 @@ static void IKBD_Cmd_SetMouseScale(void)
  */
 static void IKBD_Cmd_ReadAbsMousePos(void)
 {
-	Uint8 Buttons,PrevButtons;
+	uint8_t Buttons,PrevButtons;
 
 	/* Test buttons */
 	Buttons = 0;
@@ -2223,7 +2230,7 @@ static void IKBD_Cmd_ReturnJoystickAuto(void)
 	}
 
 	/* This command resets the internally previously stored joystick states */
-	KeyboardProcessor.Joy.PrevJoyData[0] = KeyboardProcessor.Joy.PrevJoyData[1] = 0;
+	KeyboardProcessor.Joy.PrevJoyData[JOYID_JOYSTICK0] = KeyboardProcessor.Joy.PrevJoyData[JOYID_JOYSTICK1] = 0;
 
 	/* This is a hack for the STE Utopos (=> v1.50) and Falcon Double Bubble
 	 * 2000 games. They expect the joystick data to be sent within a certain
@@ -2261,8 +2268,8 @@ static void IKBD_Cmd_ReturnJoystick(void)
 	if ( IKBD_OutputBuffer_CheckFreeCount ( 3 ) )
 	{
 		IKBD_Cmd_Return_Byte_Delay ( 0xFD , IKBD_Delay_Random ( 7500 , 10000 ) );
-		IKBD_Cmd_Return_Byte (Joy_GetStickData(0));
-		IKBD_Cmd_Return_Byte (Joy_GetStickData(1));
+		IKBD_Cmd_Return_Byte (Joy_GetStickData(JOYID_JOYSTICK0));
+		IKBD_Cmd_Return_Byte (Joy_GetStickData(JOYID_JOYSTICK1));
 	}
 }
 
@@ -2385,7 +2392,7 @@ static void IKBD_Cmd_DisableJoysticks(void)
 static void IKBD_Cmd_SetClock(void)
 {
 	int	i;
-	Uint8	val;
+	uint8_t	val;
 
 	LOG_TRACE(TRACE_IKBD_CMDS,
 		  "IKBD_Cmd_SetClock: %02x %02x %02x %02x %02x %02x\n",
@@ -2818,7 +2825,7 @@ static void IKBD_Cmd_ReportJoystickAvailability(void)
  * This small program will be executed later using the command 0x22.
  */
 
-static void IKBD_LoadMemoryByte ( Uint8 aciabyte )
+static void IKBD_LoadMemoryByte ( uint8_t aciabyte )
 {
 	unsigned int i;
 
@@ -2868,7 +2875,7 @@ static void IKBD_LoadMemoryByte ( Uint8 aciabyte )
  * with a known custom IKBD program.
  */
 
-static void IKBD_CustomCodeHandler_CommonBoot ( Uint8 aciabyte )
+static void IKBD_CustomCodeHandler_CommonBoot ( uint8_t aciabyte )
 {
 	unsigned int i;
 
@@ -2927,12 +2934,12 @@ static void IKBD_CustomCodeHandler_FroggiesMenu_Read ( void )
 	/* Ignore read */
 }
 
-static void IKBD_CustomCodeHandler_FroggiesMenu_Write ( Uint8 aciabyte )
+static void IKBD_CustomCodeHandler_FroggiesMenu_Write ( uint8_t aciabyte )
 {
-	Uint8		res80 = 0;
-	Uint8		res81 = 0;
-	Uint8		res82 = 0;
-	Uint8		res83 = 0xfc;					/* fixed value, not used */
+	uint8_t		res80 = 0;
+	uint8_t		res81 = 0;
+	uint8_t		res82 = 0;
+	uint8_t		res83 = 0xfc;					/* fixed value, not used */
 
 	/* When writing a <0 byte to $fffc02, Froggies ikbd's program will terminate itself */
 	/* and leave Execution mode (jmp $f000) */
@@ -2980,7 +2987,7 @@ static void IKBD_CustomCodeHandler_FroggiesMenu_Write ( Uint8 aciabyte )
 
 static void IKBD_CustomCodeHandler_Transbeauce2Menu_Read ( void )
 {
-	Uint8		res = 0;
+	uint8_t		res = 0;
 
 	/* keyboard emulation */
 	if ( ScanCodeState[ 0x48 ] )	res |= 0x01;		/* up */
@@ -2991,12 +2998,12 @@ static void IKBD_CustomCodeHandler_Transbeauce2Menu_Read ( void )
 	if ( ScanCodeState[ 0x39 ] )	res |= 0x80;		/* space */
 
 	/* joystick emulation (bit mapping is same as cursor above, with bit 7 = fire button */
-	res |= ( Joy_GetStickData(1) & 0x8f ) ;			/* keep bits 0-3 and 7 */
+	res |= ( Joy_GetStickData(JOYID_JOYSTICK1) & 0x8f ) ;			/* keep bits 0-3 and 7 */
 
 	IKBD_Send_Byte_Delay ( res , 0 );
 }
 
-static void IKBD_CustomCodeHandler_Transbeauce2Menu_Write ( Uint8 aciabyte )
+static void IKBD_CustomCodeHandler_Transbeauce2Menu_Write ( uint8_t aciabyte )
 {
   /* Ignore write */
 }
@@ -3014,9 +3021,9 @@ static void IKBD_CustomCodeHandler_DragonnelsMenu_Read ( void )
 	/* Ignore read */
 }
 
-static void IKBD_CustomCodeHandler_DragonnelsMenu_Write ( Uint8 aciabyte )
+static void IKBD_CustomCodeHandler_DragonnelsMenu_Write ( uint8_t aciabyte )
 {
-	Uint8		res = 0;
+	uint8_t		res = 0;
 
 	if ( KeyboardProcessor.Mouse.DeltaY < 0 )	res = 0xfc;	/* mouse up */
 	if ( KeyboardProcessor.Mouse.DeltaY > 0 )	res = 0x04;	/* mouse down */
@@ -3052,10 +3059,10 @@ static void IKBD_CustomCodeHandler_ChaosAD_Read ( void )
 	FirstCall = false;
 }
 
-static void IKBD_CustomCodeHandler_ChaosAD_Write ( Uint8 aciabyte )
+static void IKBD_CustomCodeHandler_ChaosAD_Write ( uint8_t aciabyte )
 {
 	static int	IgnoreNb = 8;
-	Uint8		KeyBuffer[] = { 0xca , 0x0a , 0xbc , 0x00 , 0xde , 0xde , 0xfe , 0xca };
+	uint8_t		KeyBuffer[] = { 0xca , 0x0a , 0xbc , 0x00 , 0xde , 0xde , 0xfe , 0xca };
 	static int	Index = 0;
 	static int	Count = 0;
 
@@ -3113,7 +3120,7 @@ static void IKBD_CustomCodeHandler_AudioSculpture_Mono_Read ( void )
 
 static void IKBD_CustomCodeHandler_AudioSculpture_Read ( bool ColorMode )
 {
-	Uint8		res = 0;
+	uint8_t		res = 0;
 	static int	ReadCount = 0;
 
 	if ( ASmagic )
@@ -3135,10 +3142,10 @@ static void IKBD_CustomCodeHandler_AudioSculpture_Read ( bool ColorMode )
 	}
 }
 
-static void IKBD_CustomCodeHandler_AudioSculpture_Write ( Uint8 aciabyte )
+static void IKBD_CustomCodeHandler_AudioSculpture_Write ( uint8_t aciabyte )
 {
-	Uint8		Magic = 0x42;
-	Uint8		Key[] = { 0x4b , 0x13 };
+	uint8_t		Magic = 0x42;
+	uint8_t		Key[] = { 0x4b , 0x13 };
 
 	if ( aciabyte == Magic )
 	{
@@ -3149,7 +3156,7 @@ static void IKBD_CustomCodeHandler_AudioSculpture_Write ( Uint8 aciabyte )
 }
 
 
-void IKBD_Info(FILE *fp, Uint32 dummy)
+void IKBD_Info(FILE *fp, uint32_t dummy)
 {
 	int i;
 	fprintf(fp, "Transmit/Receive Control+Status: 0x%02x\n", pIKBD->TRCSR);

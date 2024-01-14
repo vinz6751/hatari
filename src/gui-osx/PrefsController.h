@@ -42,7 +42,7 @@
 	// ROM
 	IBOutlet NSTextField *tosImage;
 	IBOutlet NSTextField *cartridgeImage;
-	
+
 	// Atari screen
 	IBOutlet NSMatrix *monitor;
 	IBOutlet NSButton *useBorders;
@@ -71,7 +71,7 @@
 	IBOutlet NSMatrix *YMVoicesMixing;
 
 	// System
-    
+
 	IBOutlet NSMatrix *cpuType;
 	IBOutlet NSMatrix *cpuClock;
 	IBOutlet NSMatrix *machineType;
@@ -82,7 +82,7 @@
 	IBOutlet NSButton *patchTimerD;
 	IBOutlet NSButton *FastBootPatch;
 	IBOutlet NSPopUpButton *videoTiming;
-	// for ENABLE_WINUAE_CPU CORE
+	// for WinUAE CPU core
 	IBOutlet NSButton *cycleExactCPU;			//bCycleExactCpu
 	IBOutlet NSButton *MMU_Emulation;
 	IBOutlet NSButton *adressSpace24;			// bAddressSpace24
@@ -95,7 +95,7 @@
 
 	// load/save state
 	IBOutlet NSPopUpButton *enableDSP;
- 
+
 	// Joysticks
 	IBOutlet NSPopUpButton *currentJoystick;
 	IBOutlet NSMatrix *joystickMode;
@@ -191,7 +191,7 @@
 - (void)saveAllControls;
 - (void)insertFloppyImageIntoDrive:(int)drive forTextField:(NSTextField*)floppyTextField  realPath:(NSMutableString *)realPath ;
 - (BOOL)choosePathForControl:(NSTextField*)textField chooseDirectories:(BOOL)chooseDirectories defaultInitialDir:(NSString*)defaultInitialDir 
-																					mutString:(NSMutableString *)mutString what:(NSArray *)what ;
+	mutString:(NSMutableString *)mutString ;
 - (void)initKeysDropDown:(NSPopUpButton*)dropDown;
 - (void)setJoystickControls;
 - (void)saveJoystickControls;

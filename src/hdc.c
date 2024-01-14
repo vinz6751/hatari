@@ -55,8 +55,8 @@ const char HDC_fileid[] = "Hatari hdc.c";
 
 /* HDC globals */
 static SCSI_CTRLR AcsiBus;
-int nAcsiPartitions = 0;
-bool bAcsiEmuOn = false;
+int nAcsiPartitions;
+bool bAcsiEmuOn;
 
 /* Our dummy INQUIRY response data */
 static unsigned char inquiry_bytes[] =
@@ -98,6 +98,31 @@ static unsigned long HDC_GetLBA(SCSI_CTRLR *ctr)
 }
 
 /**
+ * Return number of bytes for a command block.
+ */
+static int HDC_GetCommandByteCount(SCSI_CTRLR *ctr)
+{
+	if (ctr->opcode == 0x88 || ctr->opcode == 0x8a || ctr->opcode == 0x8f ||
+	    ctr->opcode == 0x91 || ctr->opcode == 0x9e || ctr->opcode == 0x9f)
+	{
+		return 16;
+	}
+	else if (ctr->opcode == HD_REPORT_LUNS)
+	{
+		return 12;
+	}
+	else if (ctr->opcode == 0x05 || (ctr->opcode >= 0x20 && ctr->opcode <= 0x7d))
+	{
+		return 10;
+	}
+	else
+	{
+		return 6;
+	}
+}
+
+
+/**
  * Return the count specified in the current ACSI command block.
  */
 static int HDC_GetCount(SCSI_CTRLR *ctr)
@@ -109,21 +134,10 @@ static int HDC_GetCount(SCSI_CTRLR *ctr)
 }
 
 /**
- * Return the control byte specified in the current ACSI command block.
- */
-static inline Uint8 HDC_GetControl(SCSI_CTRLR *ctr)
-{
-	if (ctr->opcode < 0x20)
-		return ctr->command[5];			/* Class 0 */
-	else
-		return ctr->command[9];			/* Class 1 */
-}
-
-/**
  * Get pointer to response buffer, set up size indicator - and allocate
  * a new buffer if it is not big enough
  */
-static Uint8 *HDC_PrepRespBuf(SCSI_CTRLR *ctr, int size)
+static uint8_t *HDC_PrepRespBuf(SCSI_CTRLR *ctr, int size)
 {
 	ctr->data_len = size;
 	ctr->offset = 0;
@@ -142,12 +156,19 @@ static Uint8 *HDC_PrepRespBuf(SCSI_CTRLR *ctr, int size)
  */
 static inline char *HDC_CmdInfoStr(SCSI_CTRLR *ctr)
 {
-	static char str[80];
+	char cdb[80] = { 0 };
 
-	snprintf(str, sizeof(str),
-	         "%s, t=%i, lun=%i, opc=0x%x, cnt=0x%x, ctrl=0x%x",
-	         ctr->typestr, ctr->target, HDC_GetLUN(ctr), ctr->opcode,
-	         HDC_GetCount(ctr), HDC_GetControl(ctr));
+	for (int i = 0; i < HDC_GetCommandByteCount(ctr); i++)
+	{
+		char tmp[5];
+		snprintf(tmp, sizeof(tmp), "%s%02x", i ? ":" : "", ctr->command[i]);
+		strcat(cdb, tmp);
+	}
+
+	static char str[160];
+
+	snprintf(str, sizeof(str), "%s, t=%i, lun=%i, cdb=%s",
+	         ctr->typestr, ctr->target, HDC_GetLUN(ctr), cdb);
 
 	return str;
 }
@@ -189,7 +210,7 @@ static void HDC_Cmd_Seek(SCSI_CTRLR *ctr)
 static void HDC_Cmd_Inquiry(SCSI_CTRLR *ctr)
 {
 	SCSI_DEV *dev = &ctr->devs[ctr->target];
-	Uint8 *buf;
+	uint8_t *buf;
 	int count;
 
 	count = HDC_GetCount(ctr);
@@ -224,7 +245,7 @@ static void HDC_Cmd_RequestSense(SCSI_CTRLR *ctr)
 {
 	SCSI_DEV *dev = &ctr->devs[ctr->target];
 	int nRetLen;
-	Uint8 *retbuf;
+	uint8_t *retbuf;
 
 	nRetLen = HDC_GetCount(ctr);
 
@@ -300,10 +321,8 @@ static void HDC_Cmd_RequestSense(SCSI_CTRLR *ctr)
  * Mode sense - Vendor specific page 00h.
  * (Just enough to make the HDX tool from AHDI 5.0 happy)
  */
-static void HDC_CmdModeSense0x00(SCSI_DEV *dev, SCSI_CTRLR *ctr)
+static void HDC_CmdModeSense0x00(SCSI_DEV *dev, SCSI_CTRLR *ctr, uint8_t *buf)
 {
-	Uint8 *buf = HDC_PrepRespBuf(ctr, 16);
-
 	buf[0] = 0;
 	buf[1] = 14;
 	buf[2] = 0;
@@ -330,10 +349,8 @@ static void HDC_CmdModeSense0x00(SCSI_DEV *dev, SCSI_CTRLR *ctr)
 /**
  * Mode sense - Rigid disk geometry page (requested by ASV).
  */
-static void HDC_CmdModeSense0x04(SCSI_DEV *dev, SCSI_CTRLR *ctr)
+static void HDC_CmdModeSense0x04(SCSI_DEV *dev, SCSI_CTRLR *ctr, uint8_t *buf)
 {
-	Uint8 *buf = HDC_PrepRespBuf(ctr, 24);
-
 	buf[0] = 4;
 	buf[1] = 22;
 
@@ -364,8 +381,8 @@ static void HDC_CmdModeSense0x04(SCSI_DEV *dev, SCSI_CTRLR *ctr)
 
 	buf[19] = 0;
 
-	buf[20] = 0;
-	buf[21] = 0;
+	buf[20] = 0x1c;	// Medium rotation rate 7200
+	buf[21] = 0x20;
 
 	buf[22] = 0;
 	buf[23] = 0;
@@ -377,6 +394,7 @@ static void HDC_CmdModeSense0x04(SCSI_DEV *dev, SCSI_CTRLR *ctr)
  */
 static void HDC_Cmd_ModeSense(SCSI_CTRLR *ctr)
 {
+	uint8_t *buf;
 	SCSI_DEV *dev = &ctr->devs[ctr->target];
 
 	LOG_TRACE(TRACE_SCSI_CMD, "HDC: MODE SENSE (%s).\n", HDC_CmdInfoStr(ctr));
@@ -386,15 +404,31 @@ static void HDC_Cmd_ModeSense(SCSI_CTRLR *ctr)
 	switch(ctr->command[2])
 	{
 	 case 0x00:
-		HDC_CmdModeSense0x00(dev, ctr);
+		buf = HDC_PrepRespBuf(ctr, 16);
+		HDC_CmdModeSense0x00(dev, ctr, buf);
 		break;
 
 	 case 0x04:
-		HDC_CmdModeSense0x04(dev, ctr);
+		buf = HDC_PrepRespBuf(ctr, 28);
+		HDC_CmdModeSense0x04(dev, ctr, buf + 4);
+		buf[0] = 24;
+		buf[1] = 0;
+		buf[2] = 0;
+		buf[3] = 0;
+		break;
+
+	 case 0x3f:
+		buf = HDC_PrepRespBuf(ctr, 44);
+		HDC_CmdModeSense0x04(dev, ctr, buf + 4);
+		HDC_CmdModeSense0x00(dev, ctr, buf + 28);
+		buf[0] = 44;
+		buf[1] = 0;
+		buf[2] = 0;
+		buf[3] = 0;
 		break;
 
 	 default:
-		Log_Printf(LOG_TODO, "HDC: Unsupported MODE SENSE command\n");
+		Log_Printf(LOG_TODO, "HDC: Unsupported MODE SENSE mode page\n");
 		ctr->status = HD_STATUS_ERROR;
 		dev->nLastError = HD_REQSENS_INVARG;
 		return;
@@ -423,13 +457,38 @@ static void HDC_Cmd_FormatDrive(SCSI_CTRLR *ctr)
 
 
 /**
+ * Report LUNs.
+ */
+static void HDC_Cmd_ReportLuns(SCSI_CTRLR *ctr)
+{
+	SCSI_DEV *dev = &ctr->devs[ctr->target];
+	uint8_t *buf;
+
+	LOG_TRACE(TRACE_SCSI_CMD, "HDC: REPORT LUNS (%s).\n", HDC_CmdInfoStr(ctr));
+
+	buf = HDC_PrepRespBuf(ctr, 16);
+
+	/* LUN list length, 8 bytes per LUN */
+	buf[0] = 0;
+	buf[1] = 0;
+	buf[2] = 0;
+	buf[3] = 8;
+	memset(&buf[4], 0, 12);
+
+	ctr->status = HD_STATUS_OK;
+	dev->nLastError = HD_REQSENS_OK;
+	dev->bSetLastBlockAddr = false;
+}
+
+
+/**
  * Read capacity of our disk.
  */
 static void HDC_Cmd_ReadCapacity(SCSI_CTRLR *ctr)
 {
 	SCSI_DEV *dev = &ctr->devs[ctr->target];
 	int nSectors = dev->hdSize - 1;
-	Uint8 *buf;
+	uint8_t *buf;
 
 	LOG_TRACE(TRACE_SCSI_CMD, "HDC: READ CAPACITY (%s)\n", HDC_CmdInfoStr(ctr));
 
@@ -499,7 +558,7 @@ static void HDC_Cmd_WriteSector(SCSI_CTRLR *ctr)
 static void HDC_Cmd_ReadSector(SCSI_CTRLR *ctr)
 {
 	SCSI_DEV *dev = &ctr->devs[ctr->target];
-	Uint8 *buf;
+	uint8_t *buf;
 	int n;
 
 	dev->nLastBlockAddr = HDC_GetLBA(ctr);
@@ -608,6 +667,10 @@ static void HDC_EmulateCommandPacket(SCSI_CTRLR *ctr)
 		HDC_Cmd_FormatDrive(ctr);
 		break;
 
+	case HD_REPORT_LUNS:
+		HDC_Cmd_ReportLuns(ctr);
+		break;
+
 	 /* as of yet unsupported commands */
 	 case HD_VERIFY_TRACK:
 	 case HD_FORMAT_TRACK:
@@ -661,10 +724,10 @@ static void HDC_EmulateCommandPacket(SCSI_CTRLR *ctr)
  * Extended partition tables are described in AHDI release notes:
  *	https://www.dev-docs.org/docs/htm/search.php?find=AHDI
  */
-int HDC_PartitionCount(FILE *fp, const Uint64 tracelevel, int *pIsByteSwapped)
+int HDC_PartitionCount(FILE *fp, const uint64_t tracelevel, int *pIsByteSwapped)
 {
 	unsigned char *pinfo, bootsector[512];
-	Uint32 start, sectors, total = 0;
+	uint32_t start, sectors, total = 0;
 	int i, parts = 0;
 	off_t offset;
 
@@ -708,22 +771,26 @@ int HDC_PartitionCount(FILE *fp, const Uint64 tracelevel, int *pIsByteSwapped)
 	{
 		int ptype, boot;
 
-		LOG_TRACE(tracelevel, "DOS MBR:\n");
+		LOG_TRACE_DIRECT_INIT();
+		LOG_TRACE_DIRECT_LEVEL(tracelevel, "DOS MBR:\n");
 		/* first partition table entry */
 		pinfo = bootsector + 0x1BE;
 		for (i = 0; i < 4; i++, pinfo += 16)
 		{
 			boot = pinfo[0];
 			ptype = pinfo[4];
-			start = SDL_SwapLE32(*(long*)(pinfo+8));
-			sectors = SDL_SwapLE32(*(long*)(pinfo+12));
+			start = SDL_SwapLE32(*(uint32_t*)(pinfo+8));
+			sectors = SDL_SwapLE32(*(uint32_t*)(pinfo+12));
 			total += sectors;
-			LOG_TRACE(tracelevel, "- Partition %d: type=0x%02x, start=0x%08x, size=%.1f MB %s%s\n",
-				  i, ptype, start, sectors/2048.0, boot ? "(boot)" : "", sectors ? "" : "(invalid)");
+			LOG_TRACE_DIRECT_LEVEL(tracelevel,
+				"- Partition %d: type=0x%02x, start=0x%08x, size=%.1f MB %s%s\n",
+				i, ptype, start, sectors/2048.0, boot ? "(boot)" : "", sectors ? "" : "(invalid)");
 			if (ptype)
 				parts++;
 		}
-		LOG_TRACE(tracelevel, "- Total size: %.1f MB in %d partitions\n", total/2048.0, parts);
+		LOG_TRACE_DIRECT_LEVEL(tracelevel,
+			"- Total size: %.1f MB in %d partitions\n", total/2048.0, parts);
+		LOG_TRACE_DIRECT_FLUSH();
 	}
 	else
 	{
@@ -737,7 +804,8 @@ int HDC_PartitionCount(FILE *fp, const Uint64 tracelevel, int *pIsByteSwapped)
 		int j, flags;
 		bool extended;
 
-		LOG_TRACE(tracelevel, "ATARI MBR:\n");
+		LOG_TRACE_DIRECT_INIT();
+		LOG_TRACE_DIRECT_LEVEL(tracelevel, "ATARI MBR:\n");
 		pinfo = bootsector + 0x1C6;
 		for (i = 0; i < 4; i++, pinfo += 12)
 		{
@@ -753,7 +821,7 @@ int HDC_PartitionCount(FILE *fp, const Uint64 tracelevel, int *pIsByteSwapped)
 			extended = strcmp("XGM", pid) == 0;
 			start = HDC_ReadInt32(pinfo, 4);
 			sectors = HDC_ReadInt32(pinfo, 8);
-			LOG_TRACE(tracelevel,
+			LOG_TRACE_DIRECT_LEVEL(tracelevel,
 				  "- Partition %d: ID=%s, start=0x%08x, size=%.1f MB, flags=0x%x %s%s\n",
 				  i, pid, start, sectors/2048.0, flags,
 				  (flags & 0x80) ? "(boot)": "",
@@ -762,7 +830,9 @@ int HDC_PartitionCount(FILE *fp, const Uint64 tracelevel, int *pIsByteSwapped)
 				parts++;
 		}
 		total = HDC_ReadInt32(bootsector, 0x1C2);
-		LOG_TRACE(tracelevel, "- Total size: %.1f MB in %d partitions\n", total/2048.0, parts);
+		LOG_TRACE_DIRECT_LEVEL(tracelevel,
+			"- Total size: %.1f MB in %d partitions\n", total/2048.0, parts);
+		LOG_TRACE_DIRECT_FLUSH();
 	}
 
 	if (fseeko(fp, offset, SEEK_SET) != 0)
@@ -934,7 +1004,7 @@ void HDC_ResetCommandStatus(void)
  * Process HDC command packets (SCSI/ACSI) bytes.
  * @return true if command has been executed.
  */
-bool HDC_WriteCommandPacket(SCSI_CTRLR *ctr, Uint8 b)
+bool HDC_WriteCommandPacket(SCSI_CTRLR *ctr, uint8_t b)
 {
 	bool bDidCmd = false;
 	SCSI_DEV *dev = &ctr->devs[ctr->target];
@@ -958,9 +1028,10 @@ bool HDC_WriteCommandPacket(SCSI_CTRLR *ctr, Uint8 b)
 		ctr->command[ctr->byteCount] = b;
 	++ctr->byteCount;
 
-	/* have we received a complete 6-byte class 0 or 10-byte class 1 packet yet? */
+	/* have we received a complete command packet yet? */
 	if ((ctr->opcode < 0x20 && ctr->byteCount == 6) ||
-	    (ctr->opcode >= 0x20 && ctr->opcode < 0x60 && ctr->byteCount == 10))
+	    (ctr->opcode >= 0x20 && ctr->opcode < 0x60 && ctr->byteCount == 10) ||
+	    (ctr->opcode == HD_REPORT_LUNS && ctr->byteCount == 12))
 	{
 		/* We currently only support LUN 0, however INQUIRY must
 		 * always be handled, see SCSI standard */
@@ -986,7 +1057,7 @@ bool HDC_WriteCommandPacket(SCSI_CTRLR *ctr, Uint8 b)
 			}
 		}
 	}
-	else if (ctr->opcode >= 0x60)
+	else if (ctr->opcode >= 0x60 && ctr->opcode != HD_REPORT_LUNS)
 	{
 		/* Commands >= 0x60 are not supported right now */
 		ctr->status = HD_STATUS_ERROR;
@@ -1010,8 +1081,8 @@ bool HDC_WriteCommandPacket(SCSI_CTRLR *ctr, Uint8 b)
 
 static void Acsi_DmaTransfer(void)
 {
-	Uint32 nDmaAddr = FDC_GetDMAAddress();
-	Uint16 nDmaMode = FDC_DMA_GetMode();
+	uint32_t nDmaAddr = FDC_GetDMAAddress();
+	uint16_t nDmaMode = FDC_DMA_GetMode();
 
 	/* Don't do anything if no DMA to ACSI bus or nothing to transfer */
 	if ((nDmaMode & 0xc0) != 0x00 || AcsiBus.data_len == 0)
@@ -1059,7 +1130,7 @@ static void Acsi_DmaTransfer(void)
 	FDC_SetIRQ(FDC_IRQ_SOURCE_HDC);
 }
 
-static void Acsi_WriteCommandByte(int addr, Uint8 byte)
+static void Acsi_WriteCommandByte(int addr, uint8_t byte)
 {
 	/* Clear IRQ initially (will be set again if byte has been accepted) */
 	FDC_ClearHdcIRQ();
@@ -1105,7 +1176,7 @@ static void Acsi_WriteCommandByte(int addr, Uint8 byte)
  * Called when command bytes have been written to $FFFF8606 and
  * the HDC (not the FDC) is selected.
  */
-void HDC_WriteCommandByte(int addr, Uint8 byte)
+void HDC_WriteCommandByte(int addr, uint8_t byte)
 {
 	// fprintf(stderr, "HDC: Write cmd byte addr=%i, byte=%02x\n", addr, byte);
 
@@ -1120,7 +1191,7 @@ void HDC_WriteCommandByte(int addr, Uint8 byte)
  */
 short int HDC_ReadCommandByte(int addr)
 {
-	Uint16 ret;
+	uint16_t ret;
 	if (Config_IsMachineFalcon())
 		ret = Ncr5380_ReadByte(addr);
 	else

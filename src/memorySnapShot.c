@@ -18,7 +18,6 @@
 */
 const char MemorySnapShot_fileid[] = "Hatari memorySnapShot.c";
 
-#include <SDL_types.h>
 #include <errno.h>
 
 #include "main.h"
@@ -34,8 +33,8 @@ const char MemorySnapShot_fileid[] = "Hatari memorySnapShot.c";
 #include "gemdos.h"
 #include "acia.h"
 #include "ikbd.h"
-#include "cycInt.h"
 #include "cycles.h"
+#include "cycInt.h"
 #include "ioMem.h"
 #include "log.h"
 #include "m68000.h"
@@ -59,7 +58,7 @@ const char MemorySnapShot_fileid[] = "Hatari memorySnapShot.c";
 #include "hatari-glue.h"
 
 
-#define VERSION_STRING      "2.3.1"   /* Version number of compatible memory snapshots - Always 6 bytes (inc' NULL) */
+#define VERSION_STRING      "2.4.0"   /* Version number of compatible memory snapshots - Always 6 bytes (inc' NULL) */
 #define SNAPSHOT_MAGIC      0xDeadBeef
 
 #if HAVE_LIBZ
@@ -166,12 +165,9 @@ static int MemorySnapShot_fseek(MSS_File fhndl, int pos)
 static bool MemorySnapShot_OpenFile(const char *pszFileName, bool bSave, bool bConfirm)
 {
 	char VersionString[] = VERSION_STRING;
-#if ENABLE_WINUAE_CPU
-# define CORE_VERSION 1
-#else
-# define CORE_VERSION 0
-#endif
-	Uint8 CpuCore;
+
+#define CORE_VERSION 1
+	uint8_t CpuCore;
 
 	/* Set error */
 	bCaptureError = false;
@@ -306,16 +302,11 @@ void MemorySnapShot_Capture(const char *pszFileName, bool bConfirm)
 {
 //fprintf ( stderr , "MemorySnapShot_Capture in\n" );
 	/* Make a temporary copy of the parameters for MemorySnapShot_Capture_Do() */
-	strlcpy ( Temp_FileName , pszFileName , FILENAME_MAX );
+	Str_Copy(Temp_FileName, pszFileName, FILENAME_MAX);
 	Temp_Confirm = bConfirm;
 
-#ifndef WINUAE_FOR_HATARI
-	/* With old cpu core, capture is immediate */
-	MemorySnapShot_Capture_Do ();
-#else
 	/* With WinUAE cpu core, capture is done from m68k_run_xxx() after the end of the current instruction */
 	UAE_Set_State_Save ();
-#endif
 //fprintf ( stderr , "MemorySnapShot_Capture out\n" );
 }
 
@@ -328,7 +319,7 @@ void MemorySnapShot_Capture(const char *pszFileName, bool bConfirm)
 void MemorySnapShot_Capture_Immediate(const char *pszFileName, bool bConfirm)
 {
 	/* Make a temporary copy of the parameters for MemorySnapShot_Capture_Do() */
-	strlcpy ( Temp_FileName , pszFileName , FILENAME_MAX );
+	Str_Copy(Temp_FileName, pszFileName, FILENAME_MAX);
 	Temp_Confirm = bConfirm;
 
 	MemorySnapShot_Capture_Do ();
@@ -341,7 +332,7 @@ void MemorySnapShot_Capture_Immediate(const char *pszFileName, bool bConfirm)
  */
 void MemorySnapShot_Capture_Do(void)
 {
-	Uint32 magic = SNAPSHOT_MAGIC;
+	uint32_t magic = SNAPSHOT_MAGIC;
 
 	/* Set to 'saving' */
 	if (MemorySnapShot_OpenFile(Temp_FileName, true, Temp_Confirm))
@@ -403,18 +394,13 @@ void MemorySnapShot_Restore(const char *pszFileName, bool bConfirm)
 {
 //fprintf ( stderr , "MemorySnapShot_Restore in\n" );
 	/* Make a temporary copy of the parameters for MemorySnapShot_Restore_Do() */
-	strlcpy ( Temp_FileName , pszFileName , FILENAME_MAX );
+	Str_Copy(Temp_FileName, pszFileName, FILENAME_MAX);
 	Temp_Confirm = bConfirm;
 
-#ifndef WINUAE_FOR_HATARI
-	/* With old cpu core, restore is immediate */
-	MemorySnapShot_Restore_Do ();
-#else
 	/* With WinUAE cpu core, restore is done from m68k_go() after the end of the current instruction */
 	UAE_Set_State_Restore ();
 	UAE_Set_Quit_Reset ( false );					/* Ask for "quit" to start restoring state */
 	set_special(SPCFLAG_MODE_CHANGE);				/* exit m68k_run_xxx() loop and check "quit" */
-#endif
 //fprintf ( stderr , "MemorySnapShot_Restore out\n" );
 }
 
@@ -425,7 +411,7 @@ void MemorySnapShot_Restore(const char *pszFileName, bool bConfirm)
  */
 void MemorySnapShot_Restore_Do(void)
 {
-	Uint32 magic;
+	uint32_t magic;
 
 //fprintf ( stderr , "MemorySnapShot_Restore_Do in\n" );
 	/* Set to 'restore' */
@@ -539,6 +525,7 @@ void save_u8(uae_u8 data)
 uae_u64 restore_u64(void)
 {
 	uae_u64 data;
+	bCaptureSave=false;			/* (re)force bCaptureSave=false to prevent gcc11 warning */
 	MemorySnapShot_Store(&data, 8);
 	return data;
 }
@@ -546,6 +533,7 @@ uae_u64 restore_u64(void)
 uae_u32 restore_u32(void)
 {
 	uae_u32 data;
+	bCaptureSave=false;
 	MemorySnapShot_Store(&data, 4);
 //printf ("r32 %x\n", data);
 	return data;
@@ -554,6 +542,7 @@ uae_u32 restore_u32(void)
 uae_u16 restore_u16(void)
 {
 	uae_u16 data;
+	bCaptureSave=false;
 	MemorySnapShot_Store(&data, 2);
 //printf ("r16 %x\n", data);
 	return data;
@@ -562,6 +551,7 @@ uae_u16 restore_u16(void)
 uae_u8 restore_u8(void)
 {
 	uae_u8 data;
+	bCaptureSave=false;
 	MemorySnapShot_Store(&data, 1);
 //printf ("r8 %x\n", data);
 	return data;

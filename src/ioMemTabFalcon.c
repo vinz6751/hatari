@@ -23,7 +23,6 @@ const char IoMemTabFalc_fileid[] = "Hatari ioMemTabFalcon.c";
 #include "rs232.h"
 #include "rtc.h"
 #include "scc.h"
-#include "screen.h"
 #include "blitter.h"
 #include "crossbar.h"
 #include "falcon/videl.h"
@@ -121,7 +120,7 @@ void IoMemTabFalcon_DSPemulation(void (**readtab)(void), void (**writetab)(void)
 */
 static void IoMemTabFalcon_BusCtrl_WriteByte(void)
 {
-	Uint8 busCtrl = IoMem_ReadByte(0xff8007);
+	uint8_t busCtrl = IoMem_ReadByte(0xff8007);
 
 	/* Set Falcon bus or STE compatible bus emulation */
 	if ((busCtrl & 0x20) == 0)
@@ -148,7 +147,7 @@ static void IoMemTabFalcon_BusCtrl_WriteByte(void)
 
 static void IoMemTabFalcon_BusCtrl_ReadByte(void)
 {
-	Uint8 nBusCtrl = IoMem_ReadByte(0xff8007);
+	uint8_t nBusCtrl = IoMem_ReadByte(0xff8007);
 
 	/* Set the bit manually to get it right after cold boot */
 	if (IoMem_IsFalconBusMode())
@@ -178,7 +177,7 @@ static void IoMemTabFalcon_BusCtrl_ReadByte(void)
  * Logic is inverted, i.e. connected means the corresponding bit is 0.
  * Switch 8 is represented by the highest bit in the register.
  */
-Uint8 IoMemTabFalcon_DIPSwitches_Read(void)
+uint8_t IoMemTabFalcon_DIPSwitches_Read(void)
 {
 	return 0xbf;
 }
@@ -235,7 +234,6 @@ const INTERCEPT_ACCESS_FUNC IoMemTable_Falcon[] =
 	{ 0xff8006, SIZE_BYTE, IoMem_ReadWithoutInterception, VIDEL_Monitor_WriteByte },        /* Falcon monitor and memory configuration */
 	{ 0xff8007, SIZE_BYTE, IoMemTabFalcon_BusCtrl_ReadByte, IoMemTabFalcon_BusCtrl_WriteByte }, /* Falcon bus configuration */
 	{ 0xff800C, SIZE_WORD, IoMem_VoidRead, IoMem_VoidWrite },                               /* No bus error here */
-	{ 0xff8060, SIZE_LONG, IoMem_VoidRead, IoMem_VoidWrite },                               /* No bus error here */
 
 	{ 0xff8200, SIZE_BYTE, IoMem_VoidRead, IoMem_VoidWrite },                               /* No bus error here */
 	{ 0xff8201, SIZE_BYTE, IoMem_ReadWithoutInterception, VIDEL_ScreenBase_WriteByte },     /* Video base high byte */

@@ -2,7 +2,7 @@
 # Classes for Hatari emulator instance and mapping its congfiguration
 # variables with its command line option.
 #
-# Copyright (C) 2008-2020 by Eero Tamminen
+# Copyright (C) 2008-2022 by Eero Tamminen
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,11 +22,6 @@ import socket
 import select
 from config import ConfigStore
 
-# Python v2:
-# - lacks Python v3 encoding arg for bytes()
-if str is bytes:
-    def bytes(s, encoding):
-        return s
 
 def _path_quote(path):
     "quote spaces in paths as expected by Hatari socket API"
@@ -292,7 +287,6 @@ class HatariConfigMapping(ConfigStore):
     }
     has_hd_sections = True # from v2.2 onwards separate ACSI/SCSI/IDE sections
     has_modeltype = True   # from v2.0 onwards
-    has_keepstres = True   # only with SDL1
 
     "access methods to Hatari configuration file variables and command line options"
     def __init__(self, hatari):
@@ -319,7 +313,6 @@ class HatariConfigMapping(ConfigStore):
         # valid on Hatari config file and/or command line
         self.get_machine()
         self.get_acsi_image()
-        self.get_desktop_st()
 
     def validate(self):
         "exception is thrown if the loaded configuration isn't compatible"
@@ -454,6 +447,32 @@ class HatariConfigMapping(ConfigStore):
         self.set("[System]", "nCpuLevel", value)
         self._change_option("--cpulevel %d" % value)
 
+    # ------------ compatible ---------------
+    def get_compatible(self):
+        return self.get("[System]", "bCompatibleCpu")
+
+    def set_compatible(self, value):
+        self.set("[System]", "bCompatibleCpu", value)
+        self._change_option("--compatible %s" % value)
+
+    # ------------ CPU exact ---------------
+    def get_cycle_exact(self):
+        return self.get("[System]", "bCycleExactCpu")
+
+    def set_cycle_exact(self, value):
+        self.set("[System]", "bCycleExactCpu", value)
+        if self._winuae:
+            self._change_option("--cpu-exact %s" % value)
+
+    # ------------ MMU ---------------
+    def get_mmu(self):
+        return self.get("[System]", "bMMU")
+
+    def set_mmu(self, value):
+        self.set("[System]", "bMMU", value)
+        if self._winuae:
+            self._change_option("--mmu %s" % value)
+
     # ------------ CPU clock ---------------
     def get_cpuclock_types(self):
         return ("8 MHz", "16 MHz", "32 MHz")
@@ -472,6 +491,35 @@ class HatariConfigMapping(ConfigStore):
         self.set("[System]", "nCpuFreq", value)
         self._change_option("--cpuclock %d" % value)
 
+    # ------------ FPU type ---------------
+    def get_fpu_types(self):
+        return ("None", "68881", "68882", "Internal")
+
+    def get_fpu_type(self):
+        return self.get("[System]", "n_FPUType")
+
+    def set_fpu_type(self, value):
+        self.set("[System]", "n_FPUType", value)
+        if self._winuae:
+            self._change_option("--fpu %s" % self.get_fpu_types()[value])
+
+    # ------------ SW FPU --------------
+    def get_fpu_soft(self):
+        return self.get("[System]", "bSoftFloatFPU")
+
+    def set_fpu_soft(self, value):
+        self.set("[System]", "bSoftFloatFPU", value)
+        if self._winuae:
+            self._change_option("--fpu-softfloat %s" % value)
+
+    # ------------ ST blitter --------------
+    def get_blitter(self):
+        return self.get("[System]", "bBlitter")
+
+    def set_blitter(self, value):
+        self.set("[System]", "bBlitter", value)
+        self._change_option("--blitter %s" % value)
+
     # ------------ DSP type ---------------
     def get_dsp_types(self):
         return ("None", "Dummy", "Emulated")
@@ -482,14 +530,6 @@ class HatariConfigMapping(ConfigStore):
     def set_dsp(self, value):
         self.set("[System]", "nDSPType", value)
         self._change_option("--dsp %s" % ("none", "dummy", "emu")[value])
-
-    # ------------ compatible ---------------
-    def get_compatible(self):
-        return self.get("[System]", "bCompatibleCpu")
-
-    def set_compatible(self, value):
-        self.set("[System]", "bCompatibleCpu", value)
-        self._change_option("--compatible %s" % value)
 
     # ------------ Timer-D ---------------
     def get_timerd(self):
@@ -548,8 +588,8 @@ class HatariConfigMapping(ConfigStore):
 
     def set_bufsize(self, value):
         value = int(value)
-        if value < 10: value = 10
-        if value > 100: value = 100
+        if value < 10 or value > 100:
+            value = 0
         self.set("[Sound]", "nSdlAudioBufferSize", value)
         self._change_option("--sound-buffer-size %d" % value)
 
@@ -797,10 +837,12 @@ class HatariConfigMapping(ConfigStore):
         return self.get("[Memory]", "nTTRamSize")
 
     def set_ttram(self, memsize):
-        # guarantee correct type (Gtk float -> config int)
-        memsize = int(memsize)
+        # enforce 4MB granularity used also by Hatari
+        memsize = (int(memsize)+3) & ~3
         self.set("[Memory]", "nTTRamSize", memsize)
         self._change_option("--ttram %d" % memsize)
+        # TODO: addressing change should check also eventual
+        # CPU level like Hatari does, but this code doesn't know it
         if memsize:
             # TT-RAM need 32-bit addressing (i.e. disable 24-bit)
             self.set("[System]", "bAddressSpace24", False)
@@ -867,19 +909,6 @@ class HatariConfigMapping(ConfigStore):
     def set_desktop(self, value):
         self.set("[Screen]", "bKeepResolution", value)
         self._change_option("--desktop %s" % value)
-
-    # --------- keep desktop res - st ------
-    def get_desktop_st(self):
-        try:
-            return self.get("[Screen]", "bKeepResolutionST")
-        except KeyError:
-            self.has_keepstres = False
-            return False
-
-    def set_desktop_st(self, value):
-        if self.has_keepstres:
-            self.set("[Screen]", "bKeepResolutionST", value)
-            self._change_option("--desktop-st %s" % value)
 
     # ------------ force max ---------------
     def get_force_max(self):

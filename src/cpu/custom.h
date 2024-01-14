@@ -40,7 +40,7 @@ extern void set_picasso_hack_rate(int hz);
 /* Set to 1 to leave out the current frame in average frame time calculation.
 * Useful if the debugger was active.  */
 extern int bogusframe;
-extern unsigned long int hsync_counter, vsync_counter;
+extern uae_u32 hsync_counter, vsync_counter;
 
 extern uae_u16 dmacon;
 extern uae_u16 intena, intreq, intreqr;
@@ -50,29 +50,10 @@ extern int vpos;
 
 extern int n_frames;
 
-STATIC_INLINE int dmaen (unsigned int dmamask)
+STATIC_INLINE int dmaen(unsigned int dmamask)
 {
 	return (dmamask & dmacon) && (dmacon & 0x200);
 }
-
-
-#define SPCFLAG_STOP 2
-#define SPCFLAG_COPPER 4
-#define SPCFLAG_INT 8
-//#define SPCFLAG_BRK 16
-//#define SPCFLAG_UAEINT 32
-//#define SPCFLAG_TRACE 64
-//#define SPCFLAG_DOTRACE 128
-//#define SPCFLAG_DOINT 256 /* arg, JIT fails without this.. */
-#define SPCFLAG_BLTNASTY 512
-//#define SPCFLAG_EXEC 1024
-#define SPCFLAG_ACTION_REPLAY 2048
-#define SPCFLAG_TRAP 4096 /* enforcer-hack */
-//#define SPCFLAG_MODE_CHANGE 8192
-#ifdef JIT
-#define SPCFLAG_END_COMPILE 16384
-#endif
-#define SPCFLAG_CHECK 32768
 
 extern uae_u16 adkcon;
 
@@ -82,7 +63,7 @@ extern int joy0button, joy1button;
 extern void INTREQ(uae_u16);
 extern bool INTREQ_0(uae_u16);
 extern void INTREQ_f(uae_u16);
-extern void send_interrupt(int num, int delay);
+extern void INTREQ_INT(int num, int delay);
 extern void rethink_uae_int(void);
 extern uae_u16 INTREQR(void);
 
@@ -99,14 +80,15 @@ extern uae_u16 INTREQR(void);
 #define DMA_MASTER    0x0200
 #define DMA_BLITPRI   0x0400
 
-#define CYCLE_REFRESH	1
-#define CYCLE_STROBE	2
-#define CYCLE_MISC		3
-#define CYCLE_SPRITE	4
-#define CYCLE_COPPER	5
-#define CYCLE_BLITTER	6
-#define CYCLE_CPU		7
-#define CYCLE_CPUNASTY	8
+#define CYCLE_BITPLANE  1
+#define CYCLE_REFRESH	2
+#define CYCLE_STROBE	3
+#define CYCLE_MISC		4
+#define CYCLE_SPRITE	5
+#define CYCLE_COPPER	6
+#define CYCLE_BLITTER	7
+#define CYCLE_CPU		8
+#define CYCLE_CPUNASTY	9
 #define CYCLE_COPPER_SPECIAL 0x10
 
 #define CYCLE_MASK 0x0f
@@ -159,8 +141,8 @@ STATIC_INLINE int GET_PLANES(uae_u16 bplcon0)
 	return (bplcon0 >> 12) & 7; // normal planes bits
 }
 
-extern void fpscounter_reset (void);
-extern unsigned long idletime;
+extern void fpscounter_reset(void);
+extern frame_time_t idletime;
 extern int lightpen_x[2], lightpen_y[2];
 extern int lightpen_cx[2], lightpen_cy[2], lightpen_active, lightpen_enabled, lightpen_enabled2;
 
@@ -171,7 +153,11 @@ struct customhack {
 void customhack_put (struct customhack *ch, uae_u16 v, int hpos);
 uae_u16 customhack_get (struct customhack *ch, int hpos);
 extern void alloc_cycle_ext (int, int);
-extern bool ispal (void);
+extern bool alloc_cycle_blitter(int hpos, uaecptr *ptr, int, int);
+extern uaecptr alloc_cycle_blitter_conflict_or(int, int, bool*);
+extern bool ispal (int *line);
+extern bool isvga(void);
+extern int current_maxvpos(void);
 extern int inprec_open(char *fname, int record);
 extern void sleep_millis (int ms);
 

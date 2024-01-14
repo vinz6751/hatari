@@ -11,7 +11,6 @@ const char DlgMemory_fileid[] = "Hatari dlgMemory.c";
 #include "sdlgui.h"
 #include "memorySnapShot.h"
 #include "file.h"
-#include "screen.h"
 #include "options.h"
 
 
@@ -35,11 +34,11 @@ const char DlgMemory_fileid[] = "Hatari dlgMemory.c";
 
 
 /* String for TT RAM size */
-static char sTTRamSize[4];
+static char sTTRamSize[5];
 
 #define DLG_TTRAM_STEP	4
 #define DLG_TTRAM_MIN	0
-#define DLG_TTRAM_MAX	512
+#define DLG_TTRAM_MAX	1024
 
 static char dlgSnapShotName[36+1];
 
@@ -63,9 +62,9 @@ static SGOBJ memorydlg[] =
 	{ SGRADIOBUT, 0, 0, 29,6, 9,1, "14 _MiB" },
 	{ SGTEXT,     0, 0,  4,9,12,1, "TT-RAM size:" },
 	{ SGBUTTON,   0, 0, 18,9, 1,1, "\x04", SG_SHORTCUT_LEFT },
-	{ SGTEXT,     0, 0, 20,9, 3,1, sTTRamSize },
-	{ SGBUTTON,   0, 0, 24,9, 1,1, "\x03", SG_SHORTCUT_RIGHT },
-	{ SGTEXT,     0, 0, 26,9,12,1, "MiB" },
+	{ SGTEXT,     0, 0, 20,9, 4,1, sTTRamSize },
+	{ SGBUTTON,   0, 0, 25,9, 1,1, "\x03", SG_SHORTCUT_RIGHT },
+	{ SGTEXT,     0, 0, 27,9,12,1, "MiB" },
 
 	{ SGBOX,      0, 0,  1,12, 38,10, NULL },
 	{ SGTEXT,     0, 0, 12,13, 17,1, "Memory state save" },
@@ -132,11 +131,7 @@ bool Dialog_MemDlg(void)
 		memsize = DLG_TTRAM_MIN;
 	else if (memsize > DLG_TTRAM_MAX)
 		memsize = DLG_TTRAM_MAX;
-#if ENABLE_WINUAE_CPU
-	sprintf(sTTRamSize, "%3i", memsize);
-#else
-	strcpy(sTTRamSize, "N/A");
-#endif
+	sprintf(sTTRamSize, "%4i", memsize);
 	File_ShrinkName(dlgSnapShotName, ConfigureParams.Memory.szMemoryCaptureFileName, memorydlg[DLGMEM_FILENAME].w);
 
 
@@ -147,20 +142,19 @@ bool Dialog_MemDlg(void)
 
 	do
 	{
-		but = SDLGui_DoDialog(memorydlg, NULL, false);
+		but = SDLGui_DoDialog(memorydlg);
 
 		switch (but)
 		{
-#if ENABLE_WINUAE_CPU
 		 case DLGMEM_TTRAM_LESS:
 			memsize = Opt_ValueAlignMinMax(memsize - DLG_TTRAM_STEP, DLG_TTRAM_STEP, DLG_TTRAM_MIN, DLG_TTRAM_MAX);
-			sprintf(sTTRamSize, "%3i", memsize);
+			sprintf(sTTRamSize, "%4i", memsize);
 			break;
 		 case DLGMEM_TTRAM_MORE:
 			memsize = Opt_ValueAlignMinMax(memsize + DLG_TTRAM_STEP, DLG_TTRAM_STEP, DLG_TTRAM_MIN, DLG_TTRAM_MAX);
-			sprintf(sTTRamSize, "%3i", memsize);
+			sprintf(sTTRamSize, "%4i", memsize);
 			break;
-#endif
+
 		 case DLGMEM_SAVE:              /* Save memory snap-shot */
 			if (SDLGui_FileConfSelect("Save memory snapshot:", dlgSnapShotName,
 			                          ConfigureParams.Memory.szMemoryCaptureFileName,

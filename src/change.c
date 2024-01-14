@@ -137,7 +137,6 @@ bool Change_DoNeedReset(CNF_PARAMS *current, CNF_PARAMS *changed)
 	if (changed->System.nCpuLevel != current->System.nCpuLevel)
 		return true;
 
-#if ENABLE_WINUAE_CPU
 	/* Did change CPU address mode? */
 	if (changed->System.bAddressSpace24 != current->System.bAddressSpace24)
 		return true;
@@ -161,7 +160,6 @@ bool Change_DoNeedReset(CNF_PARAMS *current, CNF_PARAMS *changed)
 	/* Did change size of TT-RAM? */
 	if (current->Memory.TTRamSize_KB != changed->Memory.TTRamSize_KB)
 		return true;
-#endif
 
 	/* Did change size of memory? */
 	if (current->Memory.STRamSize_KB != changed->Memory.STRamSize_KB)
@@ -204,17 +202,14 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 	 * (if switch between Colour/Mono cause reset later) or toggle statusbar
 	 */
 	if (!NeedReset &&
-	    (changed->Screen.nForceBpp != current->Screen.nForceBpp
-	     || changed->Screen.bAspectCorrect != current->Screen.bAspectCorrect
+	    (changed->Screen.bAspectCorrect != current->Screen.bAspectCorrect
 	     || changed->Screen.nMaxWidth != current->Screen.nMaxWidth
 	     || changed->Screen.nMaxHeight != current->Screen.nMaxHeight
 	     || changed->Screen.bAllowOverscan != current->Screen.bAllowOverscan
 	     || changed->Screen.bShowStatusbar != current->Screen.bShowStatusbar
-#if WITH_SDL2
 	     || changed->Screen.bUseSdlRenderer != current->Screen.bUseSdlRenderer
 	     || changed->Screen.bResizable != current->Screen.bResizable
 	     || changed->Screen.bUseVsync != current->Screen.bUseVsync
-#endif
 	    ))
 	{
 		Dprintf("- screenmode>\n");
@@ -240,9 +235,15 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 	}
 
 	/* Did set new SCC parameters? */
-	if (changed->RS232.bEnableSccB != current->RS232.bEnableSccB
-	    || strcmp(changed->RS232.sSccBInFileName, current->RS232.sSccBInFileName)
-	    || strcmp(changed->RS232.sSccBOutFileName, current->RS232.sSccBOutFileName)
+	if (changed->RS232.EnableScc[CNF_SCC_CHANNELS_A_SERIAL] != current->RS232.EnableScc[CNF_SCC_CHANNELS_A_SERIAL]
+	    || strcmp(changed->RS232.SccInFileName[CNF_SCC_CHANNELS_A_SERIAL], current->RS232.SccInFileName[CNF_SCC_CHANNELS_A_SERIAL])
+	    || strcmp(changed->RS232.SccOutFileName[CNF_SCC_CHANNELS_A_SERIAL], current->RS232.SccOutFileName[CNF_SCC_CHANNELS_A_SERIAL])
+	    || changed->RS232.EnableScc[CNF_SCC_CHANNELS_A_LAN] != current->RS232.EnableScc[CNF_SCC_CHANNELS_A_LAN]
+	    || strcmp(changed->RS232.SccInFileName[CNF_SCC_CHANNELS_A_LAN], current->RS232.SccInFileName[CNF_SCC_CHANNELS_A_LAN])
+	    || strcmp(changed->RS232.SccOutFileName[CNF_SCC_CHANNELS_A_LAN], current->RS232.SccOutFileName[CNF_SCC_CHANNELS_A_LAN])
+	    || changed->RS232.EnableScc[CNF_SCC_CHANNELS_B] != current->RS232.EnableScc[CNF_SCC_CHANNELS_B]
+	    || strcmp(changed->RS232.SccInFileName[CNF_SCC_CHANNELS_B], current->RS232.SccInFileName[CNF_SCC_CHANNELS_B])
+	    || strcmp(changed->RS232.SccOutFileName[CNF_SCC_CHANNELS_B], current->RS232.SccOutFileName[CNF_SCC_CHANNELS_B])
 	    || (SCC_IsAvailable(current) && !SCC_IsAvailable(changed)))
 	{
 		Dprintf("- SCC>\n");
@@ -463,7 +464,7 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 	}
 
 	/* Re-initialize the SCC emulation: */
-	if (ConfigureParams.RS232.bEnableSccB)
+	if ( ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_A_SERIAL] || ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_A_LAN] || ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_B] )
 	{
 		Dprintf("- SCC<\n");
 		SCC_Init();
@@ -488,6 +489,11 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 	{
 		Dprintf("- midi<\n");
 		Midi_Init();
+		if (!NeedReset)
+		{
+			/* Restart MIDI IRQ stopped on Midi_UnInit() */
+			Midi_Reset();
+		}
 	}
 
 	/* Force things associated with screen change */

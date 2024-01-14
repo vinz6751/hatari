@@ -150,11 +150,7 @@ extern int nHBL;
 extern int nStartHBL;
 extern int nEndHBL;
 extern int VerticalOverscan;
-extern Uint16 HBLPalettes[HBL_PALETTE_LINES];
-extern Uint16 *pHBLPalettes;
-extern Uint32 HBLPaletteMasks[HBL_PALETTE_MASKS];
-extern Uint32 *pHBLPaletteMasks;
-extern Uint32 VideoBase;
+extern uint32_t VideoBase;
 extern int nScreenRefreshRate;
 
 extern int nScanlinesPerFrame;
@@ -186,6 +182,8 @@ extern void	Video_InitTimings(void);
 extern void	Video_SetTimings( MACHINETYPE MachineType , VIDEOTIMINGMODE Mode );
 extern const char* Video_GetTimings_Name ( void );
 
+extern uint8_t	Video_Get_MONO_Line ( void );
+
 extern void	Video_ConvertPosition( int FrameCycles , int *pHBL , int *pLineCycles );
 extern void	Video_GetPosition( int *pFrameCycles , int *pHBL , int *pLineCycles );
 extern void	Video_GetPosition_OnWriteAccess( int *pFrameCycles , int *pHBL , int *pLineCycles );
@@ -207,6 +205,7 @@ extern void	Video_AddInterruptTimerB ( int LineVideo , int CycleVideo , int Pos 
 extern void	Video_StartInterrupts ( int PendingCyclesOver );
 extern void	Video_InterruptHandler_VBL(void);
 
+extern uint32_t Video_GetScreenBaseAddr(void);
 extern void Video_ScreenBase_WriteByte(void);
 extern void Video_ScreenCounter_ReadByte(void);
 extern void Video_ScreenCounter_WriteByte(void);
@@ -258,6 +257,6 @@ extern void Video_TTShiftMode_WriteWord(void);
 extern void Video_TTColorRegs_Write(void);
 extern void Video_TTColorRegs_STRegWrite(void);
 
-extern void Video_Info(FILE *fp, Uint32 dummy);
+extern void Video_Info(FILE *fp, uint32_t dummy);
 
 #endif  /* HATARI_VIDEO_H */

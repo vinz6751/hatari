@@ -10,21 +10,11 @@
 
 #include <SDL_video.h>    /* for SDL_Surface */
 
-#if WITH_SDL2
 extern SDL_Window *sdlWindow;
-static inline int SDL_SetColors(SDL_Surface *surface, SDL_Color *colors,
-                                int firstcolor, int ncolors)
-{
-	return SDL_SetPaletteColors(surface->format->palette, colors,
-	                            firstcolor, ncolors);
-}
-void SDL_UpdateRects(SDL_Surface *screen, int numrects, SDL_Rect *rects);
-void SDL_UpdateRect(SDL_Surface *screen, Sint32 x, Sint32 y, Sint32 w, Sint32 h);
-void Screen_SetTextureScale(int width, int height, int win_width, int win_height, bool bForceCreation);
-#define SDL_GRAB_OFF false
-#define SDL_GRAB_ON true
-#define SDL_WM_GrabInput SDL_SetRelativeMouseMode
-#endif
+
+/* TODO: Get rid of the following wrappers: */
+void Screen_UpdateRects(SDL_Surface *screen, int numrects, SDL_Rect *rects);
+void Screen_UpdateRect(SDL_Surface *screen, Sint32 x, Sint32 y, Sint32 w, Sint32 h);
 
 /* The 'screen' is a representation of the ST video memory	*/
 /* taking into account all the border tricks. Data are stored	*/
@@ -68,9 +58,6 @@ typedef struct
   bool bFullUpdate;             /* Set TRUE to cause full update on next draw */
 } FRAMEBUFFER;
 
-/* Number of frame buffers (1 or 2) - should be 2 for supporting screen flipping */
-#define NUM_FRAMEBUFFERS  2
-
 
 /* ST/TT resolution defines */
 enum
@@ -106,6 +93,11 @@ extern SDL_Surface *sdlscrn;
 extern Uint32 STRGBPalette[16];
 extern Uint32 ST2RGB[4096];
 
+extern uint16_t HBLPalettes[HBL_PALETTE_LINES];
+extern uint16_t *pHBLPalettes;
+extern uint32_t HBLPaletteMasks[HBL_PALETTE_MASKS];
+extern uint32_t *pHBLPaletteMasks;
+
 extern void Screen_Init(void);
 extern void Screen_UnInit(void);
 extern void Screen_Reset(void);
@@ -116,8 +108,9 @@ extern void Screen_EnterFullScreen(void);
 extern void Screen_ReturnFromFullScreen(void);
 extern void Screen_ModeChanged(bool bForceChange);
 extern bool Screen_Draw(void);
-extern bool Screen_SetSDLVideoSize(int width, int height, int bitdepth, bool bForceChange);
-extern void Screen_SetGenConvSize(int width, int height, int bpp, bool bForceChange);
+extern void Screen_SetTextureScale(int width, int height, int win_width,
+                                   int win_height, bool bForceCreation);
+extern void Screen_SetGenConvSize(int width, int height, bool bForceChange);
 extern void Screen_GenConvUpdate(SDL_Rect *extra, bool forced);
 extern Uint32 Screen_GetGenConvWidth(void);
 extern Uint32 Screen_GetGenConvHeight(void);
