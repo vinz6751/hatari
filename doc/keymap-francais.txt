@@ -1,0 +1,147 @@
+# Keymap. Ce format permet d'associer des codes de touches (scancode) et modificateurs
+# SDL (shift, alt, capslock, etc.) a une combinaison de touche correspondante
+# sur l'ATARI émulé.
+#
+# Le format est le suivant:
+# <description_hôte>,<description_Atari>
+#
+# <description_hôte> est le code de touche (scancode en anglais) de la touche du PC
+# concernée (visible dans la console quand on éxecute hatari avec l'option --trace keymap). 
+# On peut aussi:
+# * Spécifier un modificateur SDL (void https://wiki.libsdl.org/SDL_Keymod#Related_Functions)
+# * Ajouter un masque. Ce masque sera appliqué avec l'opérateur booléan ET à la touche
+#   pressée avant qu'elle ne soit comparée aux entrées de la liste d'association.
+#   Ceci permet d'ignorer le status de Verr.num de sorte qu'une association puisse fonctionner
+#   indépendemment de l'état de cette touche.
+# Toutes ces spécifications (scancode, modificateurs, masque) doivent apparaître dans cet
+# ordre et être séparés par le caractère barre verticale '|'.
+#
+# <description_Atari> est la liste (séparée par barre verticale '|') des touches à envoyer 
+# à l'Atari (4 maximum). Par facilité, on peut utiliser LSHIFT, RSHIFT et ALTERNATE au lieu 
+# de 2a,36,38 respectively, respectivement..
+# On peut trouver les codes de touche des Atari dans de nombreux livres et documentations,
+# par exemple:
+# https://tho-otto.de/keyboards/
+# or https://freemint.github.io/tos.hyp/en/scancode.html
+#
+# Notes:
+# * Tous les codes de touches doivent être en hexadecimal.
+# * L'analyseur n'est pas très sophistiqué donc n'ajoutez pas d'espace etc au milieu des specifications.
+# * Les associations les plus limitantes doivent apparaître en premier dans le fichier car elles ont priorité.
+
+04,1e
+# ,
+10,32
+# ?
+10|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|33
+10|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|33
+# a
+14,10
+# z
+1a,11
+# w
+1d,2c
+# 1
+1e|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|02
+1e|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|02
+1e|KMOD_CAPS|KMOD_CAPS,02
+# ~
+1f|KMOD_RALT|KMOD_RALT,LSHIFT|ALTERNATE|2b
+# 2
+1f|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|03
+1f|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|03
+1f|KMOD_CAPS|KMOD_CAPS,03
+# #
+20|KMOD_RALT|KMOD_RALT,2b
+# 3
+20|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|04
+20|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|04
+20|KMOD_CAPS|KMOD_CAPS,04
+# {
+21|KMOD_RALT|KMOD_RALT,2a|ALTERNATE|1a
+# 4
+21|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|05
+21|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|05
+# [
+22|KMOD_RALT|KMOD_RALT,ALTERNATE|1a
+# 5
+22|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|06
+22|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|06
+# |
+23|KMOD_RALT|KMOD_RALT,LSHIFT|2b
+# 6
+23|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|07
+23|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|07
+# -
+23,0d
+# 7
+24|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|08
+24|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|08
+# `
+24|KMOD_RALT|KMOD_RALT,29
+# 8
+25|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|09
+25|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|09
+# \
+25|KMOD_RALT|KMOD_RALT,ALTERNATE|28
+# _
+25,LSHIFT|0d
+# ^
+26|KMOD_RALT|KMOD_RALT,1a
+# 9
+26|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|0a
+26|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|0a
+# @
+27|KMOD_RALT|KMOD_RALT,ALTERNATE|2b
+# 0
+27|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|0b
+27|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|0b
+# °
+2d|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|0c
+2d|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|0c
+# ]
+2d|KMOD_RALT|KMOD_RALT,ALTERNATE|1b
+# + (près de efface)
+2e|KMOD_SHIFT|KMOD_SHIFT,RSHIFT|35
+# }
+2e|KMOD_RALT|KMOD_RALT,LSHIFT|ALTERNATE|1b
+# =
+2e,35
+# ¨
+2f|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|1a
+2f|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|1a
+# ^
+2f,1a
+# £
+30|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|29
+30|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|29
+# $
+30,1b
+# µ, ouaip, on peut même émuler les ALT-xyz :)
+31|KMOD_LSHIFT|KMOD_LSHIFT,ALTERNATE|6e|6f|70
+31|KMOD_RSHIFT|KMOD_RSHIFT,ALTERNATE|6e|6f|70
+# * (pas pavé numérique)
+31,RSHIFT|1b
+# m
+33|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|27
+33|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|27
+33|KMOD_LALT|KMOD_LALT,ALTERNATE|27
+33,27
+# %
+34|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|28
+34|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|28
+# ù
+34,28
+# ³ (alt-239)
+35|KMOD_LSHIFT|KMOD_LSHIFT,ALTERNATE|6e|6b|6a
+35|KMOD_RSHIFT|KMOD_RSHIFT,ALTERNATE|6e|6b|6a
+# ² (alt-253)
+35,ALTERNATE|6e|6b|6f
+# ;
+36,33
+# . (pas pavé numérique)
+36|KMOD_LSHIFT|KMOD_LSHIFT,LSHIFT|33
+36|KMOD_RSHIFT|KMOD_RSHIFT,RSHIFT|33
+# §
+38|KMOD_LSHIFT|KMOD_LSHIFT,07
+38|KMOD_RSHIFT|KMOD_RSHIFT,07
