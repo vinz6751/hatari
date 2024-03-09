@@ -176,14 +176,16 @@ typedef struct
   int nJoyId;
   int nJoyButMap[JOYSTICK_BUTTONS];
   int nKeyCodeUp, nKeyCodeDown, nKeyCodeLeft, nKeyCodeRight, nKeyCodeFire;
+  int nKeyCodeB, nKeyCodeC, nKeyCodeOption, nKeyCodePause;
+  int nKeyCodeStar, nKeyCodeHash, nKeyCodeNum[10];
 } JOYSTICK;
 
 enum
 {
 	JOYID_JOYSTICK0,
 	JOYID_JOYSTICK1,
-	JOYID_STEPADA,
-	JOYID_STEPADB,
+	JOYID_JOYPADA,
+	JOYID_JOYPADB,
 	JOYID_PARPORT1,
 	JOYID_PARPORT2,
 	JOYSTICK_COUNT
@@ -292,6 +294,7 @@ typedef enum
   MONITOR_TYPE_TV
 } MONITORTYPE;
 
+
 /* Screen configuration */
 typedef struct
 {
@@ -310,6 +313,7 @@ typedef struct
   bool bResizable;
   bool bUseVsync;
   bool bUseSdlRenderer;
+  int ScreenShotFormat;
   float nZoomFactor;
   int nSpec512Threshold;
   int nVdiColors;

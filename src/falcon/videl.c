@@ -158,6 +158,48 @@ void VIDEL_MemorySnapShot_Capture(bool bSave)
 		Videl_SetDefaultSavedRes();
 }
 
+
+/**
+ * Return the vertical refresh rate for the current video mode
+ * We use the following formula :
+ *   VFreq = ( HFreq / (VFT+1) ) * 2
+ * HFreq is 15625 Hz in RGB/TV mode or 31250 Hz in VGA mode (in VGA mode HFreq can take other values in the same range)
+ *
+ * Some VFT values set by TOS :
+ *  - 320x200 16 colors, RGB : VFT = 625	-> 50 Hz
+ *  - 320x200 16 colors, VGA : VFT = 1049	-> 60 Hz
+ */
+int VIDEL_Get_VFreq(void)
+{
+	int	HFreq;
+	int	VFT;
+	int	VFreq;
+
+	if ( IoMem_ReadWord(0xff82c0) & 4 )		/* VC0 : bit2=0 32 MHz   bit2=1 25 MHz */
+		HFreq = 31250;				/* 25 MHz, VGA */
+	else
+		HFreq = 15625;				/* 32 MHz, RGB */
+
+	VFT = IoMem_ReadWord(0xff82a2);
+
+
+	VFreq = round ( ( (double)HFreq / ( VFT+1 ) ) * 2 );
+
+	return VFreq;
+}
+
+
+/**
+ * Return the content of videl.bUseSTShifter.
+ * This tells if the current video mode is compatible with ST/STE
+ * video mode or not
+ */
+bool VIDEL_Use_STShifter(void)
+{
+	return videl.bUseSTShifter;
+}
+
+
 /**
  * Monitor write access to Falcon color palette registers
  */

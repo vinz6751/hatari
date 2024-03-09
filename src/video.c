@@ -457,6 +457,7 @@ const char Video_fileid[] = "Hatari video.c";
 #include "floppy_ipf.h"
 #include "statusbar.h"
 #include "clocks_timings.h"
+#include "utils.h"
 
 
 /* The border's mask allows to keep track of all the border tricks		*/
@@ -531,9 +532,6 @@ static bool RestartVideoCounter = false;	/* true when reaching the HBL to restar
 
 int	LineTimerBPos = LINE_END_CYCLE_50 + TIMERB_VIDEO_CYCLE_OFFSET;	/* position of the Timer B interrupt on active lines */
 int	TimerBEventCountCycleStart = -1;	/* value of Cycles_GetCounterOnWriteAccess last time timer B was started for the current VBL */
-
-int HblJitterIndex = 0;				/* TODO : remove before next release */
-int VblJitterIndex = 0;				/* TODO : remove before next release */
 
 static int	BlankLines = 0;			/* Number of empty line with no signal (by switching hi/lo near cycles 500) */
 
@@ -668,6 +666,8 @@ static VIDEO_TIMING	VideoTimings[ VIDEO_TIMING_MAX_NB ];
 static VIDEO_TIMING	*pVideoTiming;
 static int		VideoTiming;
 
+static uint64_t		VBL_ClockCounter;
+
 
 /* Convert a horizontal video position measured at 8 MHz on STF/STE */
 /* to the equivalent number of cycles when CPU runs at 8/16/32 MHz */
@@ -764,10 +764,9 @@ void Video_MemorySnapShot_Capture(bool bSave)
 	MemorySnapShot_Store(&nFirstVisibleHbl, sizeof(nFirstVisibleHbl));
 	MemorySnapShot_Store(&nLastVisibleHbl, sizeof(nLastVisibleHbl));
 	MemorySnapShot_Store(&bSteBorderFlag, sizeof(bSteBorderFlag));
-	MemorySnapShot_Store(&HblJitterIndex, sizeof(HblJitterIndex));		/* TODO : remove before next release */
-	MemorySnapShot_Store(&VblJitterIndex, sizeof(VblJitterIndex));		/* TODO : remove before next release */
 	MemorySnapShot_Store(&ShifterFrame, sizeof(ShifterFrame));
 	MemorySnapShot_Store(&TTSpecialVideoMode, sizeof(TTSpecialVideoMode));
+	MemorySnapShot_Store(&VBL_ClockCounter, sizeof(VBL_ClockCounter));
 }
 
 
@@ -1088,7 +1087,7 @@ void	Video_SetTimings( MACHINETYPE MachineType , VIDEOTIMINGMODE Mode )
 	else if ( ( MachineType == MACHINE_ST ) || ( MachineType == MACHINE_MEGA_ST ) )	/* 4 wakeup states are possible for STF */
 	{
 		if ( Mode == VIDEO_TIMING_MODE_RANDOM )
-			Mode = VIDEO_TIMING_MODE_WS1 + rand() % 4;	/* random between the 4 modes WS1, WS2, WS3, WS4 */
+			Mode = VIDEO_TIMING_MODE_WS1 + Hatari_rand() % 4;	/* random between the 4 modes WS1, WS2, WS3, WS4 */
 
 		if ( Mode == VIDEO_TIMING_MODE_WS1 )		VideoTiming = VIDEO_TIMING_STF_WS1;
 		else if ( Mode == VIDEO_TIMING_MODE_WS2 )	VideoTiming = VIDEO_TIMING_STF_WS2;
@@ -4133,11 +4132,42 @@ static void Video_ResetShifterTimings(void)
 {
 	uint8_t nSyncByte;
 	int RefreshRate_prev;
+	int RefreshRate_new;
 
 	nSyncByte = IoMem_ReadByte(0xff820a);
 	RefreshRate_prev = nScreenRefreshRate;
 
-	if ((IoMem_ReadByte(0xff8260) & 3) == 2)
+	if ( Config_IsMachineFalcon() )
+	{
+		RefreshRate_new = VIDEL_Get_VFreq();
+
+		/* Due to rounding RefreshRate_new might not exactly 50, 60 or 71, so we add a small margin */
+		if ( ( RefreshRate_new >= VIDEO_60HZ-2 ) && ( RefreshRate_new <= VIDEO_60HZ+2 ) )
+			RefreshRate_new = VIDEO_60HZ;
+
+		/* Not sure monochrome is set 71 Hz with Falcon, but we can check it anyway */
+		else if ( ( RefreshRate_new >= VIDEO_71HZ-2 ) && ( RefreshRate_new <= VIDEO_71HZ+2 ) )
+			RefreshRate_new = VIDEO_71HZ;
+
+		/* 50 Hz or other freqs : we use 50 Hz by default */
+		else
+			RefreshRate_new = VIDEO_50HZ;
+	}
+	else
+	{
+		if ( (IoMem_ReadByte(0xff8260) & 3) == 2 )		/* High res */
+			RefreshRate_new = VIDEO_71HZ;
+		else							/* Low or Medium res */
+		{
+			if ( nSyncByte & 2 )
+				RefreshRate_new = VIDEO_50HZ;
+			else
+				RefreshRate_new = VIDEO_60HZ;
+		}
+	}
+
+
+	if ( RefreshRate_new == VIDEO_71HZ )
 	{
 		/* 71 Hz, monochrome */
 		nScreenRefreshRate = VIDEO_71HZ;
@@ -4155,7 +4185,7 @@ static void Video_ResetShifterTimings(void)
 		ShifterFrame.VBLank_On_60_CheckFreq = VIDEO_71HZ;
 		ShifterFrame.VBLank_On_50_CheckFreq = VIDEO_71HZ;
 	}
-	else if (nSyncByte & 2)  /* Check if running in 50 Hz or in 60 Hz */
+	else if ( RefreshRate_new == VIDEO_50HZ )		/* ST/STE 50 Hz or Falcon RGB/TV is set to 50 Hz */
 	{
 		/* 50 Hz */
 		nScreenRefreshRate = VIDEO_50HZ;
@@ -4173,9 +4203,8 @@ static void Video_ResetShifterTimings(void)
 		ShifterFrame.VBLank_On_60_CheckFreq = VIDEO_50HZ;
 		ShifterFrame.VBLank_On_50_CheckFreq = VIDEO_50HZ;
 	}
-	else
+	else							/* 60 Hz for ST/STE or Falcon VGA */
 	{
-		/* 60 Hz */
 		nScreenRefreshRate = VIDEO_60HZ;
 		nScanlinesPerFrame = SCANLINES_PER_FRAME_60HZ;
 		nCyclesPerLine = CYCLES_PER_LINE_60HZ;
@@ -4581,7 +4610,6 @@ void Video_InterruptHandler_VBL ( void )
 {
 	int PendingCyclesOver;
 	int PendingInterruptCount_save;
-	static uint64_t VBL_ClockCounter;
 
 	PendingInterruptCount_save = PendingInterruptCount;
 
@@ -5072,7 +5100,7 @@ static void Video_ColorReg_WriteWord(void)
  * we use random values for now.
  * NOTE [NP] : When executing code from the IO addresses between 0xff8240-0xff825e
  * the unused bits on STF are set to '0' (used in "The Union Demo" protection).
- * So we use rand() only if PC is located in RAM.
+ * So we use Hatari_rand() only if PC is located in RAM.
  */
 static void Video_ColorReg_ReadWord(void)
 {
@@ -5087,7 +5115,7 @@ static void Video_ColorReg_ReadWord(void)
 
 	if (Config_IsMachineST() && M68000_GetPC() < 0x400000)		/* PC in RAM < 4MB */
 	{
-		col = ( col & 0x777 ) | ( rand() & 0x888 );
+		col = ( col & 0x777 ) | ( Hatari_rand() & 0x888 );
 		IoMem_WriteWord ( addr , col );
 	}
 

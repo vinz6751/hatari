@@ -240,7 +240,7 @@ all Atari HW except for Falcon 16-bit Videl TrueColor mode.)</p>
   <li>support for whole system state snapshot save/restore</li>
   <li>driver for extended VDI resolutions</li>
   <li>sound recording as .WAV or .YM files</li>
-  <li>screenshots in PNG or BMP format</li>
+  <li>screenshots in PNG, BMP, NEO or XIMG format</li>
   <li>AVI video capture with sound</li>
   <li>emulation speedup, slowdown and pause support</li>
   <li>Built-in <a href="debugger.html">debugger and profiler</a>
@@ -302,7 +302,7 @@ all Atari HW except for Falcon 16-bit Videl TrueColor mode.)</p>
   <li>4096 colors STE palette</li>
   <li>Stereo DMA sample sound</li>
   <li>Microwire/LMC1992 emulation</li>
-  <li>STE joypads</li>
+  <li>STE joypads (a.k.a. JagPad / PowerPad)</li>
   <li>TOS versions 1.06, 1.62, 2.05 and 2.06 (and EmuTOS) can be used in STE mode.</li>
 </ul>
 
@@ -800,6 +800,8 @@ with clearly smaller CPU overhead.</p>
 <p class="paramdesc">Use &lt;file&gt; to record AVI</p>
 <p class="parameter">--screenshot-dir &lt;dir&gt;</p>
 <p class="paramdesc">Save screenshots in the directory &lt;dir&gt;</p>
+<p class="parameter">--screenshot-format &lt;x&gt;</p>
+<p class="paramdesc">Select screenshot file format (x = bmp/png/neo/ximg).</p>
 
 <h3>Devices options</h3>
 <p class="parameter">-j,
@@ -1700,7 +1702,8 @@ Joystick 0 emulates a joystick plugged into the ST mouse port
 and is often used in games for two players.</p>
 <p>With STE joypad A and B, you can enable the emulation of Jaguar joypads
 which are plugged in the enhanced joystick ports of the Atari STE.
-Only very few STE games support these joypads, so you often won't need this.</p>
+Only very few STE games support these joypads, so you often won't need this
+(but some Falcon games require them).</p>
 <p>Finally, Hatari also emulates joysticks which were plugged on the parallel
 port with a special adapter on a real ST. These were used in some few
 multi-player games like "Gauntlet 2".</p>
@@ -1864,8 +1867,13 @@ Note that zooming takes additional CPU computing time and should
 not be enabled on very slow computers.
 </p>
 <p>Click the <span class="button">Screenshot</span> button to create
-a screenshot in PNG (or BMP) format to the current working directory
-or click the <span class="button">Record&nbsp;AVI</span> button to
+a screenshot in the selected format to the current working directory.
+PNG and BMP formats will match the visual output of Hatari.
+NEO and XIMG formats will produce Atari ST native images, but will not include
+borders, or raster palette effects. NEO is limited to the 3 standard ST
+resolutions.
+</p>
+<p>Click the <span class="button">Record&nbsp;AVI</span> button to
 record an AVI format video of Hatari screen (and audio) output.
 </p>
 <p>
