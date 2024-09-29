@@ -1898,12 +1898,12 @@ uint8_t    MFP_Main_Compute_GPIP_LINE_ACIA ( void )
  * - Bit 0 is the BUSY signal of the printer port, it is SET if no printer
  *   is connected or on BUSY. Therefore we should assume it to be 0 in Hatari
  *   when a printer is emulated.
- * - Bit 1 is used for RS232: DCD
- * - Bit 2 is used for RS232: CTS
+ * - Bit 1 is used for RS232: DCD (inverted, 0=DCD ON)
+ * - Bit 2 is used for RS232: CTS (inverted, 0=CTS ON)
  * - Bit 3 is used by the blitter (busy/idle state)
  * - Bit 4 is used by the ACIAs (keyboard and midi)
  * - Bit 5 is used by the FDC / HDC
- * - Bit 6 is used for RS232: RI
+ * - Bit 6 is used for RS232: RI (inverted, O=RI ON)
  * - Bit 7 is monochrome monitor detection signal and/or dma sound. On STE and TT it is
  *   also XORed with the DMA sound play bit. On Falcon it is only the DMA sound play bit
  *
@@ -1912,12 +1912,16 @@ uint8_t    MFP_Main_Compute_GPIP_LINE_ACIA ( void )
  */
 void	MFP_GPIP_ReadByte_Main ( MFP_STRUCT *pMFP )
 {
-	uint8_t	gpip_new;
+	uint8_t		gpip_new;
+	uint8_t		dcd,cts;
 
 	M68000_WaitState(4);
 
 	/* Update timers' state before reading the register */
 	MFP_UpdateTimers ( pMFP , Cycles_GetClockCounterImmediate() );
+
+	/* Get value of DCD/CTS signals in case RS232 emulation is enabled */
+	RS232_Get_DCD_CTS ( &dcd , &cts );
 
 	gpip_new = pMFP->GPIP;
 
@@ -1932,6 +1936,18 @@ void	MFP_GPIP_ReadByte_Main ( MFP_STRUCT *pMFP )
 		gpip_new |= 0x10;		/* set bit 4 */
 	else
 		gpip_new &= ~0x10;		/* clear bit 4 */
+
+	/* Bit 2 : CTS (inverted, 0=ON) */
+	if ( !cts )
+		gpip_new |= 0x04;		/* set bit 2 */
+	else
+		gpip_new &= ~0x04;		/* clear bit 2 */
+
+	/* Bit 1 : DCD (inverted, 0=ON) */
+	if ( !dcd )
+		gpip_new |= 0x02;		/* set bit 1 */
+	else
+		gpip_new &= ~0x02;		/* clear bit 1 */
 
 	/* Bit 0 */
 	if (ConfigureParams.Printer.bEnablePrinting)

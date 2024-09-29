@@ -590,13 +590,13 @@ class PeripheralDialog(HatariUIDialog):
         rs232 = Gtk.CheckButton("Enable RS232/MFP (!Falcon)")
         rs232.set_active(config.get_rs232())
 
-        scca = Gtk.CheckButton("Enable RS232/SCC-A output (MegaSTE/TT/Falcon")
+        scca = Gtk.CheckButton("Enable RS232/SCC-A output (MegaSTE/TT/Falcon)")
         scca.set_active(config.get_scca())
 
-        scca_lan = Gtk.CheckButton("Enable RS232/SCC-A Lan output (MegaSTE/TT/Falcon")
+        scca_lan = Gtk.CheckButton("Enable RS232/sCC-A Lan output (MegaSTE/TT/Falcon)")
         scca_lan.set_active(config.get_scca_lan())
 
-        sccb = Gtk.CheckButton("Enable RS232/SCC-B output (MegaSTE/TT/Falcon")
+        sccb = Gtk.CheckButton("Enable RS232/SCC-B output (MegaSTE/TT/Falcon)")
         sccb.set_active(config.get_sccb())
 
         dialog = Gtk.Dialog("Peripherals", self.parent,
@@ -809,6 +809,7 @@ class TraceDialog(HatariUIDialog):
         "scc",
         "scsi_cmd",
         "scsidrv",
+        "scu",
         "vdi",
         "videl",
         "video_addr",
@@ -820,7 +821,6 @@ class TraceDialog(HatariUIDialog):
         "video_ste",
         "video_sync",
         "video_vbl",
-        "vme",
         "xbios"
     ]
     def __init__(self, parent):
@@ -946,10 +946,13 @@ class MachineDialog(HatariUIDialog):
         vbox2 = Gtk.VBox()
         self.compatible = Gtk.CheckButton("Prefetch emulation")
         self.compatible.set_tooltip_text("Needed for overscan and other timing sensitive things to work correctly. Uses more host CPU")
-        self.exact = Gtk.CheckButton("Cycle exact with cache emulation")
-        self.exact.set_tooltip_text("Cycle exactness increases emulation accuracy and 680x0 cache emulation increases emulated code performance, but requires significantly more host CPU")
+        self.cache = Gtk.CheckButton(">=030 data cache emulation")
+        self.cache.set_tooltip_text("Data cache emulation increases emulated code performance, but uses significantly more host CPU")
+        self.exact = Gtk.CheckButton("Cycle exact emulation")
+        self.exact.set_tooltip_text("Cycle exactness increases emulation accuracy, but uses more host CPU")
         self.mmu = Gtk.CheckButton("MMU emulation")
         vbox2.add(self.compatible)
+        vbox2.add(self.cache)
         vbox2.add(self.exact)
         vbox2.add(self.mmu)
         table_add_widget_row(table, row, col, None, vbox2, fullspan)
@@ -981,7 +984,7 @@ class MachineDialog(HatariUIDialog):
 
         ttram = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1024, 4)
         ttram.set_digits(0)
-        ttram.set_tooltip_text("TT-RAM needs Falcon/TT and requires 32-bit addressing.  0 = disabled, 24-bit addressing.")
+        ttram.set_tooltip_text("TT-RAM requires Falcon/TT and its use disables 24-bit addressing.")
         self.ttram = table_add_widget_row(table, row, col, "TT-RAM:", ttram, fullspan)
         row += 1
 
@@ -1006,6 +1009,7 @@ class MachineDialog(HatariUIDialog):
         self.timerd.set_active(config.get_timerd())
         self.cpulevel.set_active(config.get_cpulevel())
         self.compatible.set_active(config.get_compatible())
+        self.cache.set_active(config.get_data_cache())
         self.exact.set_active(config.get_cycle_exact())
         self.mmu.set_active(config.get_mmu())
         self.clocks.set_active(config.get_cpuclock())
@@ -1033,6 +1037,7 @@ class MachineDialog(HatariUIDialog):
         config.set_timerd(self.timerd.get_active())
         config.set_cpulevel(self.cpulevel.get_active())
         config.set_compatible(self.compatible.get_active())
+        config.set_data_cache(self.cache.get_active())
         config.set_cycle_exact(self.exact.get_active())
         config.set_mmu(self.mmu.get_active())
         config.set_cpuclock(self.clocks.get_active())
@@ -1041,7 +1046,8 @@ class MachineDialog(HatariUIDialog):
         config.set_dsp(self.dsp.get_active())
         config.set_monitor(self.monitors.get_active())
         config.set_memory(self.memory.get_active())
-        config.set_ttram(self.ttram.get_value())
+        # changes 24/32-bit addressing based on TT-RAM & machine type
+        config.set_ttram(self.ttram.get_value(), self.machine.get_active())
         config.set_tos(self.tos.get_filename())
         config.flush_updates()
 

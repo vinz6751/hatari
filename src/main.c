@@ -472,11 +472,34 @@ void Main_WarpMouse(int x, int y, bool restore)
 
 /* ----------------------------------------------------------------------- */
 /**
+ * Set mouse cursor visibility and return if it was visible before.
+ */
+bool Main_ShowCursor(bool show)
+{
+	bool bOldVisibility;
+
+	bOldVisibility = SDL_ShowCursor(SDL_QUERY) == SDL_ENABLE;
+	if (bOldVisibility != show)
+	{
+		if (show)
+		{
+			SDL_ShowCursor(SDL_ENABLE);
+		}
+		else
+		{
+			SDL_ShowCursor(SDL_DISABLE);
+		}
+	}
+	return bOldVisibility;
+}
+
+
+/* ----------------------------------------------------------------------- */
+/**
  * Handle mouse motion event.
  */
-static void Main_HandleMouseMotion(SDL_Event *pEvent)
+static void Main_HandleMouseMotion(int dx, int dy)
 {
-	int dx, dy;
 	static int ax = 0, ay = 0;
 
 	/* Ignore motion when position has changed right after a reset or TOS
@@ -486,9 +509,6 @@ static void Main_HandleMouseMotion(SDL_Event *pEvent)
 		bIgnoreNextMouseMotion = false;
 		return;
 	}
-
-	dx = pEvent->motion.xrel;
-	dy = pEvent->motion.yrel;
 
 	/* In zoomed low res mode, we divide dx and dy by the zoom factor so that
 	 * the ST mouse cursor stays in sync with the host mouse. However, we have
@@ -508,6 +528,27 @@ static void Main_HandleMouseMotion(SDL_Event *pEvent)
 		dy /= nScreenZoomY;
 	}
 
+	if (!bInFullScreen)			/* Consider window scaling? */
+	{
+		static int wx, wy;
+		int win_width, win_height, ndx, ndy;
+
+		SDL_GetWindowSize(sdlWindow, &win_width, &win_height);
+
+		if (sdlscrn->w != win_width)
+		{
+			ndx = dx * sdlscrn->w;
+			dx = (ndx + wx) / win_width;
+			wx = (ndx + wx) % win_width;
+		}
+		if (sdlscrn->h != win_height)
+		{
+			ndy = dy * sdlscrn->h;
+			dy = (ndy + wy) / win_height;
+			wy = (ndy + wy) % win_height;
+		}
+	}
+
 	KeyboardProcessor.Mouse.dx += dx;
 	KeyboardProcessor.Mouse.dy += dy;
 }
@@ -525,6 +566,7 @@ void Main_EventHandler(void)
 	SDL_Event event;
 	int events;
 	int remotepause;
+	static int mleave_x = -1, mleave_y = -1;
 
 	do
 	{
@@ -571,7 +613,7 @@ void Main_EventHandler(void)
 			break;
 
 		 case SDL_MOUSEMOTION:               /* Read/Update internal mouse position */
-			Main_HandleMouseMotion(&event);
+			Main_HandleMouseMotion(event.motion.xrel, event.motion.yrel);
 			bContinueProcessing = true;
 			break;
 
@@ -655,10 +697,21 @@ void Main_EventHandler(void)
 				break;
 				/* mouse & keyboard focus */
 			case SDL_WINDOWEVENT_ENTER:
+				if (mleave_x != -1)
+				{
+					int new_x, new_y;
+					SDL_GetMouseState(&new_x, &new_y);
+					Main_HandleMouseMotion(new_x - mleave_x,
+					                       new_y - mleave_y);
+					mleave_x = mleave_y = -1;
+				}
+				/* fall through */
 			case SDL_WINDOWEVENT_FOCUS_GAINED:
 				bAllowMouseWarp = true;
 				break;
 			case SDL_WINDOWEVENT_LEAVE:
+				SDL_GetMouseState(&mleave_x, &mleave_y);
+				/* fall through */
 			case SDL_WINDOWEVENT_FOCUS_LOST:
 				bAllowMouseWarp = false;
 				break;
@@ -805,7 +858,7 @@ static void Main_UnInit(void)
 	SCC_UnInit();
 	RS232_UnInit();
 	Printer_UnInit();
-	IoMem_UnInit();
+	IoMem_UnInit(ConfigureParams.System.nMachineType);
 	NvRam_UnInit();
 	GemDOS_UnInitDrives();
 	Ide_UnInit();

@@ -149,6 +149,10 @@ bool Change_DoNeedReset(CNF_PARAMS *current, CNF_PARAMS *changed)
 	if (changed->System.bCycleExactCpu != current->System.bCycleExactCpu)
 		return true;
 
+	/* Did change CPU data cache? */
+	if (changed->System.bCpuDataCache != current->System.bCpuDataCache)
+		return true;
+
 	/* Did change MMU? */
 	if (changed->System.bMMU != current->System.bMMU)
 		return true;
@@ -356,7 +360,7 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 	    || changed->System.nMachineType != current->System.nMachineType)
 	{
 		Dprintf("- blitter/dsp/machine>\n");
-		IoMem_UnInit();
+		IoMem_UnInit(current->System.nMachineType);
 		bReInitIoMem = true;
 	}
 	

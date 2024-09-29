@@ -10,9 +10,10 @@ jobs:
     if: github.repository == 'hatari/hatari'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         persist-credentials: false
+        fetch-tags: true
     - name: repo-sync
       uses: repo-sync/github-sync@v2.3.0
       with:

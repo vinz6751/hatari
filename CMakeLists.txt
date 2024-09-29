@@ -1,10 +1,4 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
-if(POLICY CMP0148)
-	# Should be removed when we replaced FindPythonInterp with FindPython3
-	# and cmake_minimum_required has been bumped to 3.12
-	cmake_policy(SET CMP0148 OLD)
-endif(POLICY CMP0148)
+cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
 
 # Set build type to "Release" if user did not specify any build type yet
 # Other possible values: Debug, Release, RelWithDebInfo and MinSizeRel
@@ -14,7 +8,7 @@ endif(NOT CMAKE_BUILD_TYPE)
 
 if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release")
 	set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Target architectures")
-	set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9" CACHE STRING "Target minimum macOS version")
+	set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Target minimum macOS version")
 endif(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release")
 
 project(Hatari C)
@@ -61,8 +55,6 @@ set(ENABLE_DSP_EMU 1
     CACHE BOOL "Enable DSP 56k emulator for Falcon mode")
 set(ENABLE_TRACING 1
     CACHE BOOL "Enable tracing messages for debugging")
-set(ENABLE_SMALL_MEM 1
-    CACHE BOOL "Enable to use less memory - at the expense of emulation speed")
 
 # Run-time checks with GCC / LLVM (Clang) AddressSanitizer:
 # - stack protection
@@ -264,9 +256,6 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wwrite-strings -Wsign-compare")
 	#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wextra -Wno-unused-parameter -Wno-empty-body")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wformat-security")
-	if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_FORTIFY_SOURCE=2")
-	endif()
 endif()
 
 CHECK_C_COMPILER_FLAG("-Wimplicit-fallthrough=2" WARN_FALLTRHOUGH_AVAILABLE)
@@ -278,6 +267,11 @@ CHECK_C_COMPILER_FLAG("-Wshadow=local" WARN_SHADOW_LOCAL_AVAILABLE)
 if(WARN_SHADOW_LOCAL_AVAILABLE)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wshadow=local")
 endif(WARN_SHADOW_LOCAL_AVAILABLE)
+
+CHECK_C_COMPILER_FLAG("-Wvla" WARN_VARIABLE_LENGTH_ARRAY_AVAILABLE)
+if(WARN_VARIABLE_LENGTH_ARRAY_AVAILABLE)
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wvla")
+endif(WARN_VARIABLE_LENGTH_ARRAY_AVAILABLE)
 
 if(EMSCRIPTEN)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-rtti -fno-exceptions -O3 -s USE_SDL=2 -s USE_ZLIB=1")
@@ -370,14 +364,14 @@ if(NOT CMAKE_CROSSCOMPILING)
 	add_subdirectory(tests)
 endif(NOT CMAKE_CROSSCOMPILING)
 
-include(FindPythonInterp)
-if(PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR LESS 3)
+include(FindPython)
+if(Python_Interpreter_FOUND AND Python_VERSION_MAJOR LESS 3)
 	message("Note: Hatari needs at least Python 3 ... ignoring older version")
-	unset(PYTHONINTERP_FOUND)
+	unset(Python_Interpreter_FOUND)
 endif()
 set(PYTHON_GTK_FOUND 0)
-if(PYTHONINTERP_FOUND)
-	execute_process(COMMAND ${PYTHON_EXECUTABLE} -c "\
+if(Python_Interpreter_FOUND)
+	execute_process(COMMAND ${Python_EXECUTABLE} -c "\
 import gi\n\
 gi.require_version('Gtk', '3.0')\n\
 from gi.repository import Gtk\n\
@@ -390,7 +384,7 @@ from gi.repository import GLib"
 		set(PYTHON_GTK_FOUND 1)
 		add_subdirectory(python-ui)
 	endif()
-endif(PYTHONINTERP_FOUND)
+endif(Python_Interpreter_FOUND)
 
 if(UNIX AND NOT ENABLE_OSX_BUNDLE)
 	add_subdirectory(share)

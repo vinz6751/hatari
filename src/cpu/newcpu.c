@@ -516,8 +516,9 @@ static bool get_trace(uaecptr addr, int accessmode, int size, uae_u32 *data)
 		x_do_cycles(c);
 		return false;
 	}
-	if (cputrace.memoryoffset > 0 || cputrace.cyclecounter_pre) {
-		gui_message(_T("CPU trace: GET %08x %d %d NOT FOUND!\n"), addr, accessmode, size);
+	if ((cputrace.writecounter > 0 || cputrace.readcounter > 0) && cputrace.cyclecounter_pre) {
+		gui_message(_T("CPU trace: GET %08x %d %d (%d %d %d) NOT FOUND!\n"),
+			addr, accessmode, size, cputrace.readcounter, cputrace.writecounter, cputrace.cyclecounter_pre);
 	}
 	check_trace();
 	*data = 0;
@@ -2918,7 +2919,7 @@ static int iack_cycle(int nr)
 			/* will never be processed. If there's no DSP IRQ, we clear level 6 pending bit now */
 			/* and if there's a lower MFP pending int, level 6 will be set again at the next instruction */
 			if ( DSP_GetHREQ() == 0 )
-				pendingInterrupts &= ~( 1 << 6 );
+				M68000_ClearIRQ ( 6 );
 		}
 	}
 	if ( nr == 29 )								/* SCC (level 5) */
@@ -2964,7 +2965,7 @@ static int iack_cycle(int nr)
 		CycInt_Process();
 		if ( MFP_UpdateNeeded == true )
 			MFP_UpdateIRQ_All ( 0 );				/* update MFP's state if some internal timers related to MFP expired */
-		pendingInterrupts &= ~( 1 << ( nr - 24 ) );			/* clear HBL or VBL pending bit (even if an MFP timer occurred during IACK) */
+		M68000_ClearIRQ ( nr - 24 );					/* clear HBL or VBL pending bit (even if an MFP timer occurred during IACK) */
 		CPU_IACK = false;
 
 		/* Add the cycles used by the IACK sequence (IACK to DTACK transition) */
@@ -3235,9 +3236,9 @@ static void Exception_mmu030 (int nr, uaecptr oldpc)
 
 #ifdef WINUAE_FOR_HATARI
 	LOG_TRACE(TRACE_CPU_EXCEPTION, "cpu exception %d currpc %x buspc %x newpc %x fault_e3 %x op_e3 %x addr_e3 %x SR %x\n",
-		nr, currpc, regs.instruction_pc, STMemory_ReadLong (regs.vbr + 4*nr), last_fault_for_exception_3, last_op_for_exception_3, last_addr_for_exception_3, regs.sr);
+		nr, currpc, regs.instruction_pc, STMemory_ReadLong (regs.vbr + 4*vector_nr), last_fault_for_exception_3, last_op_for_exception_3, last_addr_for_exception_3, regs.sr);
 #endif
-	exception_debug (nr);
+	exception_debug (vector_nr);
 	MakeSR ();
     
 	if (!regs.s) {
@@ -3294,7 +3295,7 @@ static void Exception_mmu (int nr, uaecptr oldpc)
 
 	interrupt = nr >= 24 && nr < 24 + 8;
 	if (interrupt)
-		nr = iack_cycle(nr);
+		vector_nr = iack_cycle(nr);
 
 	// exception vector fetch and exception stack frame
 	// operations don't allocate new cachelines
@@ -3302,9 +3303,9 @@ static void Exception_mmu (int nr, uaecptr oldpc)
 
 #ifdef WINUAE_FOR_HATARI
 	LOG_TRACE(TRACE_CPU_EXCEPTION, "cpu exception %d currpc %x buspc %x newpc %x fault_e3 %x op_e3 %x addr_e3 %x SR %x\n",
-		nr, currpc, regs.instruction_pc, STMemory_ReadLong (regs.vbr + 4*nr), last_fault_for_exception_3, last_op_for_exception_3, last_addr_for_exception_3, regs.sr);
+		nr, currpc, regs.instruction_pc, STMemory_ReadLong (regs.vbr + 4*vector_nr), last_fault_for_exception_3, last_op_for_exception_3, last_addr_for_exception_3, regs.sr);
 #endif
-	exception_debug (nr);
+	exception_debug (vector_nr);
 	MakeSR ();
 
 	if (!regs.s) {
@@ -3331,7 +3332,7 @@ static void Exception_mmu (int nr, uaecptr oldpc)
 			Exception_build_stack_frame(regs.mmu_fault_addr, currpc, regs.mmu_fslw, vector_nr, 0x4);
 	} else if (nr == 3) { // address error
         Exception_build_stack_frame(last_fault_for_exception_3, currpc, 0, vector_nr, 0x2);
-		write_log (_T("Exception %d (%x) at %x -> %x!\n"), nr, last_fault_for_exception_3, currpc, get_long_debug (regs.vbr + 4 * nr));
+		write_log (_T("Exception %d (%x) at %x -> %x!\n"), nr, last_fault_for_exception_3, currpc, get_long_debug (regs.vbr + 4 * vector_nr));
 	} else if (regs.m && interrupt) { /* M + Interrupt */
 		Exception_build_stack_frame(oldpc, currpc, regs.mmu_ssw, vector_nr, 0x0);
 		MakeSR();
@@ -3465,7 +3466,7 @@ static void Exception_normal (int nr)
 		vector_nr = iack_cycle(nr);
 #endif
 
-	exception_debug (nr);
+	exception_debug (vector_nr);
 	MakeSR ();
 
 	if (!regs.s) {
@@ -8762,6 +8763,8 @@ uae_u8 *restore_mmu(uae_u8 *src)
 
 	changed_prefs.mmu_model = model = restore_u32 ();
 	flags = restore_u32 ();
+	if ( model == 68030 )
+		restore_mmu030_finish();
 	write_log (_T("MMU: %d\n"), model);
 	return src;
 }
@@ -8806,7 +8809,7 @@ static void exception3_read_special(uae_u32 opcode, uaecptr addr, int size, int 
 }
 
 // 68010 special prefetch handling
-void exception3_read_prefetch_only(uae_u32 opcode, uae_u32 addr)
+void exception3_read_prefetch_only(uae_u32 opcode, uaecptr addr)
 {
 	if (currprefs.cpu_model == 68010) {
 		uae_u16 prev = regs.read_buffer;
@@ -9117,9 +9120,9 @@ void m68k_resumestopped(void)
 uae_u32 mem_access_delay_word_read (uaecptr addr)
 {
 	uae_u32 v;
-//#ifndef WINUAE_FOR_HATARI
+
 	if ( BlitterPhase )	Blitter_HOG_CPU_mem_access_before ( 1 );	// WINUAE_FOR_HATARI
-#if 1
+
 	switch (ce_banktype[addr >> 16])
 	{
 	case CE_MEMBANK_CHIP16:
@@ -9135,11 +9138,6 @@ uae_u32 mem_access_delay_word_read (uaecptr addr)
 		v = get_word (addr);
 		break;
 	}
-#else
-//fprintf ( stderr , "word read mis %lu %lu\n" , currcycle / cpucycleunit , currcycle );
-	v = get_word (addr);
-	x_do_cycles_post (4 * cpucycleunit, v);
-#endif
 	regs.db = v;
 	regs.read_buffer = v;
 	if ( BlitterPhase )	Blitter_HOG_CPU_mem_access_after ( 1 );		// WINUAE_FOR_HATARI
@@ -9148,9 +9146,9 @@ uae_u32 mem_access_delay_word_read (uaecptr addr)
 uae_u32 mem_access_delay_wordi_read (uaecptr addr)
 {
 	uae_u32 v;
-//#ifndef WINUAE_FOR_HATARI
+
 	if ( BlitterPhase )	Blitter_HOG_CPU_mem_access_before ( 1 );	// WINUAE_FOR_HATARI
-#if 1
+
 	switch (ce_banktype[addr >> 16])
 	{
 	case CE_MEMBANK_CHIP16:
@@ -9166,11 +9164,6 @@ uae_u32 mem_access_delay_wordi_read (uaecptr addr)
 		v = get_wordi (addr);
 		break;
 	}
-#else
-//fprintf ( stderr , "wordi read mis %lu %lu\n" , currcycle / cpucycleunit , currcycle );
-	v = get_wordi (addr);
-	x_do_cycles_post (4 * cpucycleunit, v);
-#endif
 	regs.db = v;
 	regs.read_buffer = v;
 	if ( BlitterPhase )	Blitter_HOG_CPU_mem_access_after ( 1 );		// WINUAE_FOR_HATARI
@@ -9180,9 +9173,9 @@ uae_u32 mem_access_delay_wordi_read (uaecptr addr)
 uae_u32 mem_access_delay_byte_read (uaecptr addr)
 {
 	uae_u32  v;
-//#ifndef WINUAE_FOR_HATARI
+
 	if ( BlitterPhase )	Blitter_HOG_CPU_mem_access_before ( 1 );	// WINUAE_FOR_HATARI
-#if 1
+
 	switch (ce_banktype[addr >> 16])
 	{
 	case CE_MEMBANK_CHIP16:
@@ -9198,11 +9191,6 @@ uae_u32 mem_access_delay_byte_read (uaecptr addr)
 		v = get_byte (addr);
 		break;
 	}
-#else
-//fprintf ( stderr , "byte read mis %lu %lu\n" , currcycle / cpucycleunit , currcycle );
-	v = get_byte (addr);
-	x_do_cycles_post (4 * cpucycleunit, v);
-#endif
 	regs.db = (v << 8) | v;
 	regs.read_buffer = v;
 	if ( BlitterPhase )	Blitter_HOG_CPU_mem_access_after ( 1 );		// WINUAE_FOR_HATARI
@@ -9212,9 +9200,9 @@ void mem_access_delay_byte_write (uaecptr addr, uae_u32 v)
 {
 	regs.db = (v << 8)  | v;
 	regs.write_buffer = v;
-//#ifndef WINUAE_FOR_HATARI
+
 	if ( BlitterPhase )	Blitter_HOG_CPU_mem_access_before ( 1 );	// WINUAE_FOR_HATARI
-#if 1
+
 	switch (ce_banktype[addr >> 16])
 	{
 	case CE_MEMBANK_CHIP16:
@@ -9230,16 +9218,12 @@ void mem_access_delay_byte_write (uaecptr addr, uae_u32 v)
 		return;
 	}
 	put_byte (addr, v);
-#else
-	put_byte (addr, v);
-	x_do_cycles_post (4 * cpucycleunit, v);
-#endif
 }
 void mem_access_delay_word_write (uaecptr addr, uae_u32 v)
 {
-//#ifndef WINUAE_FOR_HATARI
+
 	if ( BlitterPhase )	Blitter_HOG_CPU_mem_access_before ( 1 );	// WINUAE_FOR_HATARI
-#if 1
+
 	regs.db = v;
 	regs.write_buffer = v;
 	switch (ce_banktype[addr >> 16])
@@ -9257,10 +9241,6 @@ void mem_access_delay_word_write (uaecptr addr, uae_u32 v)
 		return;
 	}
 	put_word (addr, v);
-#else
-	put_word (addr, v);
-	x_do_cycles_post (4 * cpucycleunit, v);
-#endif
 }
 
 static void start_020_cycle(void)

@@ -64,6 +64,7 @@ static const struct Config_Tag configs_Debugger[] =
 	{ "nNumberBase", Int_Tag, &ConfigureParams.Debugger.nNumberBase },
 	{ "nSymbolLines", Int_Tag, &ConfigureParams.Debugger.nSymbolLines },
 	{ "nMemdumpLines", Int_Tag, &ConfigureParams.Debugger.nMemdumpLines },
+	{ "nFindLines", Int_Tag, &ConfigureParams.Debugger.nFindLines },
 	{ "nDisasmLines", Int_Tag, &ConfigureParams.Debugger.nDisasmLines },
 	{ "nBacktraceLines", Int_Tag, &ConfigureParams.Debugger.nBacktraceLines },
 	{ "nExceptionDebugMask", Int_Tag, &ConfigureParams.Debugger.nExceptionDebugMask },
@@ -535,13 +536,13 @@ static const struct Config_Tag configs_System[] =
 	{ "nModelType", Int_Tag, &ConfigureParams.System.nMachineType },
 	{ "bBlitter", Bool_Tag, &ConfigureParams.System.bBlitter },
 	{ "nDSPType", Int_Tag, &ConfigureParams.System.nDSPType },
-	{ "nVMEType", Int_Tag, &ConfigureParams.System.nVMEType },
 	{ "nRtcYear", Int_Tag, &ConfigureParams.System.nRtcYear },
 	{ "bPatchTimerD", Bool_Tag, &ConfigureParams.System.bPatchTimerD },
 	{ "bFastBoot", Bool_Tag, &ConfigureParams.System.bFastBoot },
 	{ "bFastForward", Bool_Tag, &ConfigureParams.System.bFastForward },
 	{ "bAddressSpace24", Bool_Tag, &ConfigureParams.System.bAddressSpace24 },
 	{ "bCycleExactCpu", Bool_Tag, &ConfigureParams.System.bCycleExactCpu },
+	{ "bCpuDataCache", Bool_Tag, &ConfigureParams.System.bCpuDataCache },
 	{ "n_FPUType", Int_Tag, &ConfigureParams.System.n_FPUType },
 /* JIT	{ "bCompatibleFPU", Bool_Tag, &ConfigureParams.System.bCompatibleFPU }, */
 	{ "bSoftFloatFPU", Bool_Tag, &ConfigureParams.System.bSoftFloatFPU },
@@ -589,6 +590,7 @@ void Configuration_SetDefault(void)
 	ConfigureParams.Debugger.nNumberBase = 10;
 	ConfigureParams.Debugger.nSymbolLines = -1; /* <0: use terminal size */
 	ConfigureParams.Debugger.nMemdumpLines = -1; /* <0: use terminal size */
+	ConfigureParams.Debugger.nFindLines = -1; /* <0: use terminal size */
 	ConfigureParams.Debugger.nDisasmLines = -1; /* <0: use terminal size */
 	ConfigureParams.Debugger.nBacktraceLines = 0; /* <=0: show all */
 	ConfigureParams.Debugger.nExceptionDebugMask = DEFAULT_EXCEPTIONS;
@@ -840,13 +842,13 @@ void Configuration_SetDefault(void)
 	ConfigureParams.System.nCpuLevel = 0;
 	ConfigureParams.System.nCpuFreq = 8;	nCpuFreqShift = 0;
 	ConfigureParams.System.nDSPType = DSP_TYPE_NONE;
-	ConfigureParams.System.nVMEType = VME_TYPE_DUMMY; /* for TOS MegaSTE detection */
 	ConfigureParams.System.nRtcYear = 0;
 	ConfigureParams.System.bAddressSpace24 = true;
 	ConfigureParams.System.n_FPUType = FPU_NONE;
 	ConfigureParams.System.bCompatibleFPU = true; /* JIT */
 	ConfigureParams.System.bSoftFloatFPU = false;
 	ConfigureParams.System.bMMU = false;
+	ConfigureParams.System.bCpuDataCache = true;
 	ConfigureParams.System.bCycleExactCpu = true;
 	ConfigureParams.System.VideoTimingMode = VIDEO_TIMING_MODE_WS3;
 	ConfigureParams.System.bCompatibleCpu = true;
@@ -956,6 +958,22 @@ void Configuration_Apply(bool bReset)
 //fprintf (stderr,"M68000_CheckCpuSettings conf 1\n" );
 	M68000_CheckCpuSettings();
 //fprintf (stderr,"M68000_CheckCpuSettings conf 2\n" );
+
+	/* Disable invalid joystick mappings */
+	for (i = 0; i < JOYSTICK_COUNT; i++)
+	{
+		int joyid = ConfigureParams.Joysticks.Joy[i].nJoyId;
+		if (joyid < 0 || joyid >= JOYSTICK_COUNT)
+		{
+			if (ConfigureParams.Joysticks.Joy[i].nJoystickMode == JOYSTICK_REALSTICK)
+			{
+				Log_Printf(LOG_WARN, "Selected real Joystick %d unavailable, disabling ST joystick %d\n", joyid, i);
+				ConfigureParams.Joysticks.Joy[i].nJoystickMode = JOYSTICK_DISABLED;
+			}
+			/* otherwise it may result in invalid array access */
+			ConfigureParams.Joysticks.Joy[i].nJoyId = 0;
+		}
+	}
 
 	/* Clean file and directory names */
 	File_MakeAbsoluteName(ConfigureParams.Rom.szTosImageFileName);
@@ -1226,12 +1244,10 @@ void Configuration_MemorySnapShot_Capture(bool bSave)
 	MemorySnapShot_Store(&ConfigureParams.System.nMachineType, sizeof(ConfigureParams.System.nMachineType));
 	MemorySnapShot_Store(&ConfigureParams.System.bBlitter, sizeof(ConfigureParams.System.bBlitter));
 	MemorySnapShot_Store(&ConfigureParams.System.nDSPType, sizeof(ConfigureParams.System.nDSPType));
-	/* TODO: enable after VME/SCU interrupt emulation is implemented
-	MemorySnapShot_Store(&ConfigureParams.System.nVMEType, sizeof(ConfigureParams.System.nVMEType));
-	 */
 	MemorySnapShot_Store(&ConfigureParams.System.bPatchTimerD, sizeof(ConfigureParams.System.bPatchTimerD));
 	MemorySnapShot_Store(&ConfigureParams.System.bAddressSpace24, sizeof(ConfigureParams.System.bAddressSpace24));
 
+	MemorySnapShot_Store(&ConfigureParams.System.bCpuDataCache, sizeof(ConfigureParams.System.bCpuDataCache));
 	MemorySnapShot_Store(&ConfigureParams.System.bCycleExactCpu, sizeof(ConfigureParams.System.bCycleExactCpu));
 	MemorySnapShot_Store(&ConfigureParams.System.n_FPUType, sizeof(ConfigureParams.System.n_FPUType));
 	MemorySnapShot_Store(&ConfigureParams.System.bCompatibleFPU, sizeof(ConfigureParams.System.bCompatibleFPU));

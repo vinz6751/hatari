@@ -43,6 +43,7 @@ typedef struct {
 static flagname_t ExceptionFlags[] = {
 	{ EXCEPT_NONE,      "none" },
 
+	{ EXCEPT_NOHANDLER, "nohandler" },
 	{ EXCEPT_BUS,       "bus" },
 	{ EXCEPT_ADDRESS,   "address" },
 	{ EXCEPT_ILLEGAL,   "illegal" },
@@ -51,7 +52,8 @@ static flagname_t ExceptionFlags[] = {
 	{ EXCEPT_TRAPV,     "trapv" },
 	{ EXCEPT_PRIVILEGE, "privilege" },
 	{ EXCEPT_TRACE,     "trace" },
-	{ EXCEPT_NOHANDLER, "nohandler" },
+	{ EXCEPT_LINEA,     "linea" },
+	{ EXCEPT_LINEF,     "linef" },
 
 	{ EXCEPT_DSP,       "dsp" },
 
@@ -143,6 +145,8 @@ static flagname_t TraceFlags[] = {
 
 	{ TRACE_SCSIDRV		 , "scsidrv" },
 
+	{ TRACE_SCU		 , "scu" },
+
 	{ TRACE_OS_VDI  	 , "vdi" },
 
 	{ TRACE_VIDEL  	         , "videl" },
@@ -157,8 +161,6 @@ static flagname_t TraceFlags[] = {
 	{ TRACE_VIDEO_STE	 , "video_ste" },
 	{ TRACE_VIDEO_SYNC	 , "video_sync" },
 	{ TRACE_VIDEO_VBL	 , "video_vbl" },
-
-	{ TRACE_VME		 , "vme" },
 
 	{ TRACE_OS_XBIOS	 , "xbios" },
 };

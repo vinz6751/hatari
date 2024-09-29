@@ -499,13 +499,16 @@ void SCC_Init ( void )
 	/* Connect Channel A to Serial or LAN port depending on the machine */
 	SCC_Check_Lan_IsEnabled();
 
-	/* Init filehandles for channel B */
+	/* Init filehandles for channel B Serial */
 	SCC_Init_Channel ( 1 , &ConfigureParams.RS232.EnableScc[CNF_SCC_CHANNELS_B] ,
 		ConfigureParams.RS232.SccInFileName[CNF_SCC_CHANNELS_B] , ConfigureParams.RS232.SccOutFileName[CNF_SCC_CHANNELS_B] ,
 		&SCC.Chn[1].ReadHandle_Serial , &SCC.Chn[1].WriteHandle_Serial , &SCC.Chn[1].FileHandle_Serial_IsATTY );
+
+	/* Channel B has only serial filehandle */
 	SCC.Chn[1].ReadHandle = SCC.Chn[1].ReadHandle_Serial;
 	SCC.Chn[1].WriteHandle = SCC.Chn[1].WriteHandle_Serial;
 	SCC.Chn[1].FileHandle_IsATTY = SCC.Chn[1].FileHandle_Serial_IsATTY;
+	SCC.Chn[1].ReadHandle_Lan = SCC.Chn[1].WriteHandle_Lan = -1;
 }
 
 
@@ -705,7 +708,7 @@ static void SCC_Serial_Set_BaudAttr ( int handle, speed_t new_speed )
 	memset(&options, 0, sizeof(options));
 	if (tcgetattr(handle, &options) < 0)
 	{
-		LOG_TRACE(TRACE_SCC, "SCC: tcgetattr() failed\n");
+		LOG_TRACE(TRACE_SCC, "scc tcgetattr() failed\n");
 		return;
 	}
 
@@ -788,7 +791,7 @@ static void SCC_Serial_Set_BaudRate ( int Channel, int value )
 static uint16_t SCC_Serial_Get_CTS ( int Channel )
 {
 	int	cts = 1;
-	Log_Printf(LOG_DEBUG, "SCC: get status for CTS %d\n" , Channel);
+	LOG_TRACE(TRACE_SCC, "scc get status for CTS %d\n" , Channel);
 
 #if defined(HAVE_SYS_IOCTL_H) && defined(TIOCMGET)
 	int	status = 0;
@@ -814,9 +817,9 @@ static uint16_t SCC_Serial_Get_CTS ( int Channel )
 static uint16_t SCC_Serial_Get_DCD ( int Channel )
 {
 	int	dcd = 1;
-	Log_Printf(LOG_DEBUG, "SCC: get status for DCD %d\n" , Channel);
+	LOG_TRACE(TRACE_SCC, "scc get status for DCD %d\n" , Channel);
 
-	#if defined(HAVE_SYS_IOCTL_H) && defined(TIOCMGET)
+#if defined(HAVE_SYS_IOCTL_H) && defined(TIOCMGET)
 	int	status = 0;
 	if ( SCC.Chn[Channel].WriteHandle >= 0 && SCC.Chn[Channel].FileHandle_IsATTY )
 	{
@@ -1011,7 +1014,7 @@ static int SCC_Compute_BaudRate ( int chn , bool *pStartBRG , uint32_t *pBaudRat
 	int	ClockMult;
 	int	TransmitClock , ReceiveClock;
 	int	BaudRate;
-	const char	*ClockName;
+	LOG_TRACE_VAR const char *ClockName;
 
 
 	/* WR4 gives Clock Mode Multiplier */
@@ -1589,7 +1592,7 @@ static uint8_t SCC_ReadControl(int chn)
 		break;
 
 	 default:		/* should not happen */
-		Log_Printf(LOG_DEBUG, "SCC read : unprocessed read address=$%x\n", active_reg);
+		Log_Printf(LOG_DEBUG, "SCC: unprocessed read, address=$%x\n", active_reg);
 		value = 0;
 		break;
 	}

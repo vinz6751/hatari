@@ -141,28 +141,36 @@ static int DebugUI_SetLogFile(int nArgc, char *psArgs[])
 	return DEBUGGER_CMDDONE;
 }
 
+/**
+ * Helper to output given value as binary number
+ */
+void DebugUI_PrintBinary(FILE *fp, int minwidth, uint32_t value)
+{
+	bool one, ones;
+	int bit;
+
+	ones = false;
+	for (bit = 31; bit >= 0; bit--)
+	{
+		one = value & (1U << bit);
+		if (ones || bit < minwidth || one)
+		{
+			fputc(one ? '1':'0', fp);
+			ones = true;
+		}
+	}
+	if (!ones)
+		fputc('0', fp);
+}
 
 /**
  * Helper to print given value in all supported number bases
  */
 static void DebugUI_PrintValue(uint32_t value)
 {
-	bool one, ones;
-	int bit;
-
 	fputs("= %", stderr);
-	ones = false;
-	for (bit = 31; bit >= 0; bit--)
-	{
-		one = value & (1U << bit);
-		if (one || ones)
-		{
-			fputc(one ? '1':'0', stderr);
-			ones = true;
-		}
-	}
-	if (!ones)
-		fputc('0', stderr);
+	DebugUI_PrintBinary(stderr, 0, value);
+
 	if (value & 0x80000000)
 		fprintf(stderr, " (bin), #%u/%d (dec), $%x (hex)\n", value, (int)value, value);
 	else
@@ -644,7 +652,7 @@ static int DebugUI_ParseCommand(const char *input_orig)
 	if (cmd == -1)
 	{
 		fprintf(stderr, "Command '%s' not found.\n"
-			"Use 'help' to view a list of available commands.\n",
+			"Use 'help' to view a list of available debugger commands.\n",
 			psArgs[0]);
 		free(input);
 		return DEBUGGER_CMDDONE;
@@ -1149,6 +1157,21 @@ void DebugUI_UnInit(void)
 
 
 /**
+ * Return true if user wants to quit current command
+ */
+bool DebugUI_DoQuitQuery(const char *info)
+{
+	char input[8];
+	fprintf(stderr, "--- q to exit %s, enter to continue --- ", info);
+	if (fgets(input, sizeof(input), stdin) == NULL ||
+	    toupper(input[0]) == 'Q') {
+		return true;
+	}
+	return false;
+}
+
+
+/**
  * Add debugger command files during Hatari startup before things
  * needed by the debugger are initialized so that it can be parsed
  * when debugger itself gets initialized.
@@ -1403,9 +1426,11 @@ void DebugUI_Exceptions(int nr, long pc)
 		{ EXCEPT_ILLEGAL,   "Illegal instruction" },	/* 4 */
 		{ EXCEPT_ZERODIV,   "Div by zero" },		/* 5 */
 		{ EXCEPT_CHK,       "CHK" },			/* 6 */
-		{ EXCEPT_TRAPV,     "TRAPV" },			/* 7 */
+		{ EXCEPT_TRAPV,     "TRAPCc/TRAPV" },		/* 7 */
 		{ EXCEPT_PRIVILEGE, "Privilege violation" },	/* 8 */
-		{ EXCEPT_TRACE,     "Trace" }			/* 9 */
+		{ EXCEPT_TRACE,     "Trace" },			/* 9 */
+		{ EXCEPT_LINEA,     "Line-A" },			/* 10 */
+		{ EXCEPT_LINEF,     "Line-F" }			/* 11 */
 	};
 	nr -= 2;
 	if (nr < 0  || nr >= ARRAY_SIZE(ex))

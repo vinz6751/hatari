@@ -165,6 +165,7 @@ enum {
 	OPT_CPULEVEL,		/* CPU options */
 	OPT_CPUCLOCK,
 	OPT_COMPATIBLE,
+	OPT_CPU_DATA_CACHE,
 	OPT_CPU_CYCLE_EXACT,
 	OPT_CPU_ADDR24,
 	OPT_FPU_TYPE,
@@ -175,7 +176,6 @@ enum {
 	OPT_MACHINE,		/* system options */
 	OPT_BLITTER,
 	OPT_DSP,
-	OPT_VME,
 	OPT_RTC_YEAR,
 	OPT_TIMERD,
 	OPT_FASTBOOT,
@@ -435,7 +435,9 @@ static const opt_t HatariOptions[] = {
 	{ OPT_CPUCLOCK,  NULL, "--cpuclock",
 	  "<x>", "Set the CPU clock (x = 8/16/32)" },
 	{ OPT_COMPATIBLE, NULL, "--compatible",
-	  "<bool>", "Use a more compatible (but slower) prefetch mode for CPU" },
+	  "<bool>", "Use (more compatible) prefetch mode for CPU" },
+	{ OPT_CPU_DATA_CACHE, NULL, "--data-cache",
+	  "<bool>", "Emulate (>=030) CPU data cache" },
 	{ OPT_CPU_CYCLE_EXACT, NULL, "--cpu-exact",
 	  "<bool>", "Use cycle exact CPU emulation" },
 	{ OPT_CPU_ADDR24, NULL, "--addr24",
@@ -456,8 +458,6 @@ static const opt_t HatariOptions[] = {
 	  "<bool>", "Use blitter emulation (ST only)" },
 	{ OPT_DSP,       NULL, "--dsp",
 	  "<x>", "DSP emulation (x = none/dummy/emu, Falcon only)" },
-	{ OPT_VME,	NULL, "--vme",
-	  "<x>", "VME mode (x = none/dummy, MegaSTE/TT only)" },
 	{ OPT_RTC_YEAR,   NULL, "--rtc-year",
 	  "<x>", "Set initial year for RTC (0, 1980 <= x < 2080)" },
 	{ OPT_TIMERD,    NULL, "--timer-d",
@@ -1848,6 +1848,11 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			bLoadAutoSave = false;
 			break;
 
+		case OPT_CPU_DATA_CACHE:
+			ok = Opt_Bool(argv[++i], OPT_CPU_DATA_CACHE, &ConfigureParams.System.bCpuDataCache);
+			bLoadAutoSave = false;
+			break;
+
 		case OPT_CPU_CYCLE_EXACT:
 			ok = Opt_Bool(argv[++i], OPT_CPU_CYCLE_EXACT, &ConfigureParams.System.bCycleExactCpu);
 			bLoadAutoSave = false;
@@ -1993,23 +1998,6 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				return Opt_ShowError(OPT_DSP, argv[i], "Unknown DSP type");
 			}
 			bLoadAutoSave = false;
-			break;
-
-		case OPT_VME:
-			i += 1;
-			if (strcasecmp(argv[i], "dummy") == 0)
-			{
-				ConfigureParams.System.nVMEType = VME_TYPE_DUMMY;
-			}
-			else if (strcasecmp(argv[i], "none") == 0 || strcasecmp(argv[i], "off") == 0)
-			{
-				ConfigureParams.System.nVMEType = VME_TYPE_NONE;
-			}
-			else
-			{
-				return Opt_ShowError(OPT_VME, argv[i], "Unknown VME type");
-			}
-			bLoadAutoSave = false; /* TODO: needed? */
 			break;
 
 		case OPT_RTC_YEAR:
