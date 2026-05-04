@@ -16,8 +16,7 @@
 	GNU General Public License for more details.
 
 	You should have received a copy of the GNU General Public License
-	along with this program; if not, write to the Free Software Foundation,
-	51 Franklin Street, Fifth Floor, Boston, MA 02110-1335 USA
+	along with this program; if not, see <https://www.gnu.org/licenses/>.
 */
 
 #include <ctype.h>
@@ -594,7 +593,7 @@ int DSP_GetRegisterAddress(const char *regname, uint32_t **addr, uint32_t *mask)
 	typedef struct {
 		const char name[MAX_REGNAME_LEN];
 		uint32_t *addr;
-		size_t bits;
+		int bits;
 		uint32_t mask;
 	} reg_addr_t;
 

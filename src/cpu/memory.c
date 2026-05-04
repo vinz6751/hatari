@@ -12,18 +12,17 @@
   */
 const char Memory_fileid[] = "Hatari memory.c";
 
-#include <SDL.h>
 #include "main.h"
 #include "sysdeps.h"
 #include "hatari-glue.h"
 #include "maccess.h"
 #include "memory.h"
 
+#include "conv_st.h"
 #include "tos.h"
 #include "ide.h"
 #include "ioMem.h"
 #include "reset.h"
-#include "screen.h"
 #include "stMemory.h"
 #include "m68000.h"
 #include "configuration.h"
@@ -41,12 +40,16 @@ static uae_u32 STmem_size;
 uae_u32 TTmem_size = 0;
 static uae_u32 TTmem_mask;
 
-#define STmem_start  0x00000000
-#define ROMmem_start 0x00E00000
-#define IdeMem_start 0x00F00000
-#define IOmem_start  0x00FF0000
-#define TTmem_start  0x01000000			/* TOS 3 and TOS 4 always expect extra RAM at this address */
-#define TTmem_end    0x80000000			/* Max value for end of TT ram, which gives 2047 MB */
+#define STmem_start		0x00000000
+#define ROMmem_start		0x00E00000
+#define IdeMem_start		0x00F00000
+#define IOmem_start		0x00FF0000
+#define TTmem_start		0x01000000			/* TOS 3 and TOS 4 always expect extra RAM at this address */
+#define TTmem_end		0x80000000			/* Max value for end of TT ram, which gives 2047 MB */
+#define VMEmem_start_TT		0xFE000000			/* MegaSTE and TT support a VME bus. This returns a bus error */
+#define VMEmem_end_TT		0xFF000000			/* when no board is plugged. Regions are different between MegaSTE and TT */
+#define VMEmem_start_MegaSTE	0x00A00000
+#define VMEmem_end_MegaSTE	0x00E00000
 
 #define IdeMem_size  65536
 #define IOmem_size  65536
@@ -288,7 +291,6 @@ uae_u32 dummy_get (uaecptr addr, int size, bool inst, uae_u32 defvalue)
 		return currprefs.cpu_model > 68000 ? 0x0000 : 0xffff;
 	}
 	if (addr == 0xb0b000) {
-		extern bool isideint(void);
 		return isideint() ? 0xffff : 0x0000;
 	}
 #endif
@@ -1680,9 +1682,7 @@ void memory_init(uae_u32 NewSTMemSize, uae_u32 NewTTMemSize, uae_u32 NewRomMemSt
 	STmemory = malloc(alloc_size);
 	if (!STmemory)
 	{
-		write_log ("virtual memory exhausted (STmemory)!\n");
-		SDL_Quit();
-		exit(1);
+		Main_ErrorExit("Virtual memory exhausted (STmemory)", NULL, 1);
 	}
 	memset(STmemory, 0, alloc_size);
 
@@ -1696,9 +1696,7 @@ void memory_init(uae_u32 NewSTMemSize, uae_u32 NewTTMemSize, uae_u32 NewRomMemSt
 		ROMmemory = malloc(2*1024*1024);
 		if (!ROMmemory)
 		{
-			fprintf(stderr, "Out of memory (ROM/IO mem)!\n");
-			SDL_Quit();
-			exit(1);
+			Main_ErrorExit("Out of memory (ROM/IO mem)", NULL, 1);
 		}
 	}
 
@@ -1815,6 +1813,18 @@ void memory_init(uae_u32 NewSTMemSize, uae_u32 NewTTMemSize, uae_u32 NewRomMemSt
 	else
 	{
 		map_banks_ce(&BusErrMem_bank, IdeMem_start >> 16, 0x1, 0, CE_MEMBANK_CHIP16, CE_MEMBANK_NOT_CACHABLE);
+	}
+
+	/* VME regions on TT :      0xFE000000 to 0xFEFEFFFF (A24/D16) and 0xFEFF0000 to 0xFEFFFFFF (A16/D16) : total is 16 MB */
+	/* VME regions on MegaSTE : 0x00A00000 to 0x00DEFFFF (A24/D16) and 0x00DF0000 to 0x00DFFFFF (A16/D16) : total is 4 MB */
+	/* Hatari doesn't emulate VME for now, so these regions should return bus errors */
+	if ( Config_IsMachineTT() )
+	{
+		map_banks_ce(&BusErrMem_bank, VMEmem_start_TT >> 16, ( VMEmem_end_TT - VMEmem_start_TT ) >> 16 , 0, CE_MEMBANK_CHIP16, CE_MEMBANK_NOT_CACHABLE);
+	}
+	else if ( Config_IsMachineMegaSTE() )
+	{
+		map_banks_ce(&BusErrMem_bank, VMEmem_start_MegaSTE >> 16, ( VMEmem_end_MegaSTE - VMEmem_start_MegaSTE ) >> 16 , 0, CE_MEMBANK_CHIP16, CE_MEMBANK_NOT_CACHABLE);
 	}
 
 	/* Illegal memory regions cause a bus error on the ST: */

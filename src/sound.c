@@ -281,6 +281,8 @@ static ymu16	Vol3Voices = 0;				/* volume 0-0x1f for voices having a constant vo
 
 
 /* Global variables that can be changed/read from other parts of Hatari */
+int nAudioFrequency = 44100;				/* Sound playback frequency */
+
 uint8_t		SoundRegs[ 14 ];
 
 int		YmVolumeMixing = YM_TABLE_MIXING;
@@ -386,8 +388,8 @@ ymsample	Subsonic_IIR_HPF_Left(ymsample x0)
 	if ( YM2149_HPF_Filter == YM2149_HPF_FILTER_NONE )
 		return x0;
 
-	y1 += ((x0 - x1)<<15) - (y0<<6);  /*  64*y0  */
-	y0 = y1>>15;
+	y1 += ((x0 - x1) * 32768) - (y0 * 64);
+	y0 = y1 / 32768;
 	x1 = x0;
 
 	return y0;
@@ -401,8 +403,8 @@ ymsample	Subsonic_IIR_HPF_Right(ymsample x0)
 	if ( YM2149_HPF_Filter == YM2149_HPF_FILTER_NONE )
 		return x0;
 
-	y1 += ((x0 - x1)<<15) - (y0<<6);  /*  64*y0  */
-	y0 = y1>>15;
+	y1 += ((x0 - x1) * 32768) - (y0 * 64);
+	y0 = y1 / 32768;
 	x1 = x0;
 
 	return y0;
@@ -1198,7 +1200,7 @@ static void	YM2149_DoSamples_250_Debug ( int SamplesToGenerate , int pos )
 
 	for ( n=0 ; n<SamplesToGenerate ; n++ )
 	{
-		sample = SDL_SwapLE16 ( YM_Buffer_250[ pos ] );
+		sample = le_swap16(YM_Buffer_250[pos]);
 		fwrite ( &sample , sizeof(sample) , 1 , file_ptr );
 		pos = ( pos + 1 ) & YM_BUFFER_250_SIZE_MASK;
 		wav_size += 2;
@@ -1544,8 +1546,7 @@ void Sound_Reset(void)
 	/* Clear sound mixing buffer: */
 	memset(AudioMixBuffer, 0, sizeof(AudioMixBuffer));
 
-	/* Clear cycle counts, buffer index and register '13' flags */
-	Cycles_SetCounter(CYCLES_COUNTER_SOUND, 0);
+	/* Clear buffer index and register '13' flags */
 	bEnvelopeFreqFlag = false;
 
 	AudioMixBuffer_pos_read = 0;
@@ -1826,7 +1827,7 @@ void Sound_Update_VBL(void)
 	}
 	
 	/* Record AVI audio frame is necessary */
-	if ( bRecordingAvi )
+	if ( Avi_AreWeRecording() )
 	{
 		int Len;
 
@@ -1910,3 +1911,43 @@ void Sound_SetYmVolumeMixing(void)
 	Ym2149_BuildVolumeTable();
 }
 
+
+/**
+ * Set audio playback frequency variable, pass as PLAYBACK_xxxx
+ */
+void Sound_SetOutputAudioFreq(int nNewFrequency)
+{
+	/* Do not reset sound system if nothing has changed! */
+	if (nNewFrequency != nAudioFrequency)
+	{
+		/* Set new frequency */
+		nAudioFrequency = nNewFrequency;
+
+		if (Config_IsMachineFalcon())
+		{
+			/* Compute Ratio between host computer sound frequency and Hatari's sound frequency. */
+			Crossbar_Compute_Ratio();
+		}
+		else if (!Config_IsMachineST())
+		{
+			/* Adapt LMC filters to this new frequency */
+			DmaSnd_Init_Bass_and_Treble_Tables();
+		}
+
+		/* Re-open SDL audio interface if necessary: */
+		if (bSoundWorking)
+		{
+			Audio_UnInit();
+			Audio_Init();
+		}
+	}
+
+	/* Apply YM2149 C10 low pass filter ? (except if forced to NONE) */
+	if ( YM2149_LPF_Filter != YM2149_LPF_FILTER_NONE )
+	{
+		if ( Config_IsMachineST() && nAudioFrequency >= 40000 )
+			YM2149_LPF_Filter = YM2149_LPF_FILTER_LPF_STF;
+		else
+			YM2149_LPF_Filter = YM2149_LPF_FILTER_PWM;
+	}
+}

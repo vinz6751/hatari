@@ -1,21 +1,11 @@
-#
 # Classes for Hatari emulator instance and mapping its congfiguration
 # variables with its command line option.
 #
-# Copyright (C) 2008-2024 by Eero Tamminen
+# Copyright (C) 2008-2025 by Eero Tamminen
 #
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import os
-import sys
 import time
 import signal
 import socket
@@ -237,7 +227,7 @@ class Hatari:
         # it for some reason doesn't listen to any events delivered to that
         # window nor implements XEMBED protocol to get them in a way most
         # friendly to embedder:
-        #   http://standards.freedesktop.org/xembed-spec/latest/
+        #   https://specifications.freedesktop.org/xembed-spec/latest/
         #
         # Instead we tell hatari to reparent itself after creating
         # its own window into this program widget window
@@ -486,7 +476,7 @@ class HatariConfigMapping(ConfigStore):
             return True
         return self.get("[System]", "bCpuDataCache")
 
-    def set_cpu_caches(self, value):
+    def set_data_cache(self, value):
         if not self.has_opts_2_6:
             return
         self.set("[System]", "bCpuDataCache", value)

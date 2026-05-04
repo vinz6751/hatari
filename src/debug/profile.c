@@ -13,6 +13,15 @@ const char Profile_fileid[] = "Hatari profile.c";
 #include <stdio.h>
 #include <assert.h>
 #include <inttypes.h>
+
+#include "config.h"
+
+#if HAVE_LIBREADLINE
+# include <readline/readline.h>
+#else
+# define rl_filename_completion_function(x,y) NULL
+#endif
+
 #include "main.h"
 #include "version.h"
 #include "debugui.h"
@@ -125,12 +134,18 @@ void Profile_ShowCallers(FILE *fp, int sites, callee_t *callsite, const char * (
 	caller_t *info;
 	uint64_t total;
 	uint32_t addr, typeaddr;
+	bool next;
 
 	/* legend */
 	fputs("# <callee>: <caller1> = <calls> <types>[ <inclusive/totals>[ <exclusive/totals>]], <caller2> ..., <callee name>", fp);
 	fputs("\n# types: ", fp);
+	next = false;
 	for (i = 0; i < ARRAY_SIZE(flaginfo); i++) {
-		fprintf(fp, "%c = %s, ", flaginfo[i].chr, flaginfo[i].info);
+		if (next) {
+			fputs(", ", fp);
+		}
+		fprintf(fp, "%c = %s", flaginfo[i].chr, flaginfo[i].info);
+		next = true;
 	}
 	fputs("\n# totals: calls/instructions/cycles/i-misses/d-hits\n", fp);
 
@@ -427,12 +442,14 @@ uint32_t Profile_CallEnd(callinfo_t *callinfo, counters_t *totalcost)
  *
  * Diagram of variables involved in 2 functions deep call stack:
  *
+ * <pre>
  *   (caller_addr 1)  bsr symbol1  -1->  symbol1     (callee_addr 1)
  *      (ret_addr 1)  <instr>     <-.    ...
  *                                  |    bsr symbol2 (caller_addr 2)  -2->  symbol2 (callee_addr 2)
  *                                  1    <instr>     (ret_addr 2)    <-.    ...
  *                                  |    ...                           2    ... (PC)
  *                                  '-   rts                           '-   rts
+ * </pre>
  *
  * When one wants to match callee_addr (= symbol) to caller_addr (= which
  * place in that function called further functions), it's best to traverse
@@ -611,11 +628,16 @@ void Profile_FreeCallinfo(callinfo_t *callinfo)
  */
 char *Profile_Match(const char *text, int state)
 {
-	static const char *names[] = {
+	static const char *subs[] = {
 		"addresses", "callers", "caches", "counts", "cycles", "d-hits", "i-misses",
 		"loops", "off", "on", "save", "stack", "stats", "symbols"
 	};
-	return DebugUI_MatchHelper(names, ARRAY_SIZE(names), text, state);
+
+	char *ret = DebugUI_MatchHelper(subs, ARRAY_SIZE(subs), text, state);
+	if (ret) {
+		return ret;
+	}
+	return rl_filename_completion_function(text, state);
 }
 
 const char Profile_Description[] =
@@ -638,10 +660,10 @@ const char Profile_Description[] =
 	"\t- loops <file> [CPU limit] [DSP limit]\n"
 	"\n"
 	"\t'on' & 'off' enable and disable profiling.  Data is collected\n"
-	"\tuntil debugger is entered again at which point you get profiling\n"
-	"\tstatistics ('stats') summary.\n"
+	"\tuntil debugger is entered again, at which point profiling\n"
+	"\tstatistics ('stats') summary is shown.\n"
 	"\n"
-	"\tThen you can ask for list of the PC addresses, sorted either by\n"
+	"\tMost active PC addresses can be queried, sorted either by\n"
 	"\texecution 'counts', used 'cycles', i-cache misses or d-cache hits.\n"
 	"\tFirst can be limited just to named addresses with 'symbols'.\n"
 	"\tOptional count will limit how many items will be shown.\n"
@@ -650,15 +672,15 @@ const char Profile_Description[] =
 	"\n"
 	"\t'addresses' lists the profiled addresses in order, with the\n"
 	"\tinstructions (currently) residing at them.  By default this\n"
-	"\tstarts from the first executed instruction, or you can\n"
-	"\tspecify the starting address.\n"
+	"\tstarts from the first executed instruction, or from the\n"
+	"\tspecified start address.\n"
 	"\n"
 	"\t'callers' shows (raw) caller information for addresses which\n"
 	"\thad symbol(s) associated with them.  'stack' shows the current\n"
 	"\tprofile stack (this is useful only with :noinit breakpoints).\n"
 	"\n"
 	"\tProfile address and callers information can be saved with\n"
-	"\t'save' command.\n"
+	"\tthe 'save' command.\n"
 	"\n"
 	"\tDetailed (spin) looping information can be collected by\n"
 	"\tspecifying to which file it should be saved, with optional\n"

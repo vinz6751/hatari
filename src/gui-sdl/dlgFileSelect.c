@@ -8,7 +8,6 @@
 */
 const char DlgFileSelect_fileid[] = "Hatari dlgFileSelect.c";
 
-#include <SDL.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -18,7 +17,15 @@ const char DlgFileSelect_fileid[] = "Hatari dlgFileSelect.c";
 #endif
 
 #include "main.h"
+
+#if ENABLE_SDL3
+#include <SDL3/SDL.h>
+#else
+#include <SDL.h>
+#endif
+
 #include "scandir.h"
+#include "screen.h"
 #include "sdlgui.h"
 #include "file.h"
 #include "paths.h"
@@ -302,7 +309,7 @@ static void DlgFileSelect_ManageScrollbar(void)
 	int scrollY, scrollYmin, scrollYmax, scrollH_half;
 	float scrollMove;
 
-	SDL_GetMouseState(&x, &y);
+	Screen_GetMouseState(&x, &y);
 	SDLGui_ScaleMouseStateCoordinates(&x, &y);
 
 	/* If mouse is down on the scrollbar for the first time */
@@ -401,7 +408,11 @@ static void DlgFileSelect_HandleSdlEvents(SDL_Event *pEvent)
 			DlgFileSelect_ScrollDown();
 		break;
 	 case SDL_KEYDOWN:
+#if ENABLE_SDL3
+		switch (pEvent->key.key)
+#else
 		switch (pEvent->key.keysym.sym)
+#endif
 		{
 		 case SDLK_UP:
 			DlgFileSelect_ScrollUp();
@@ -704,7 +715,7 @@ char* SDLGui_FileSelect(const char *title, const char *path_and_name, char **zip
 	fsdlg[SGFSDLG_TITLE].w = len;
 
 	/* Save mouse state and enable cursor */
-	bOldMouseVisibility = Main_ShowCursor(true);
+	bOldMouseVisibility = Screen_ShowCursor(true);
 
 	SDLGui_CenterDlg(fsdlg);
 	if (bAllowNew)
@@ -798,7 +809,7 @@ char* SDLGui_FileSelect(const char *title, const char *path_and_name, char **zip
 		}
 		fsdlg[SGFSDLG_SCROLLBAR].w = yScrollbar_size;
 
-		/* Refresh scrolbar pos */
+		/* Refresh scrollbar pos */
 		ypos = (int) (scrollbar_Ypos * ((float)entries/(float)(SGFS_NUMENTRIES-2)) + 0.5);
 
 		if (ypos+SGFS_NUMENTRIES >= entries) {			/* Ensure Y pos is in the correct boundaries */
@@ -1079,7 +1090,7 @@ char* SDLGui_FileSelect(const char *title, const char *path_and_name, char **zip
 		retpath = NULL;
 
 clean_exit:
-	Main_ShowCursor(bOldMouseVisibility);
+	Screen_ShowCursor(bOldMouseVisibility);
 
 	if (browsingzip && zipfiles != NULL)
 	{

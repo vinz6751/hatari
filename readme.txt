@@ -8,9 +8,9 @@ Below is the original reame from Hatari
 
                                     Hatari
 
-                             Version 2.5.0, April 2024
+                             Version 2.6.1, August 2025
 
-                            http://hatari.tuxfamily.org/
+                            https://www.hatari-emu.org/
 
 
 Contents:
@@ -43,10 +43,7 @@ WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License along with
-this program; if not, write to the
- Free Software Foundation, Inc.,
- 51 Franklin Street, Fifth Floor, Boston,
- MA  02110-1301, USA
+this program; if not, see <https://www.gnu.org/licenses/>.
 
 Linking Hatari statically or dynamically with other modules is making a
 combined work based on Hatari. Thus, the terms and conditions of the GNU
@@ -197,7 +194,7 @@ for example in /usr/local/lib/caps/
 TOS tester in tests/tosboot/ directory can be used to verify that
 Hatari was built fine enough that it's able to boot all tested TOS
 versions in various different HW configurations and run some GEMDOS
-based tests.  For EmuTOS, use the latest released 512k version to
+based tests.  For EmuTOS, use the latest released 1024k version to
 get best test coverage.
 
 If Hatari package will have two application menu entries for Hatari,
@@ -212,17 +209,6 @@ registering Hatari as a (binfmt_misc) handler for TOS binaries.
 Alternatively one could add a mime type for TOS binaries with xdg-mime:
   http://portland.freedesktop.org/xdg-utils-1.0/xdg-mime.html
 But registering handlers for mime-types seems desktop specific.
-
-
- 3.4.1) Known distro problems
-
-Old RHEL 5 and the derived CentOS v5.x Linux distributions ship
-with a broken readline library:
-	https://bugzilla.redhat.com/show_bug.cgi?id=499837
-
-To get CMake readline detection and linking working on them,
-you need to give these as extra arguments to the "cmake" command:
-   -DCMAKE_C_FLAGS=-lncurses -DCMAKE_EXE_LINKER_FLAGS=-lncurses
 
 
  4) Running Hatari
@@ -267,7 +253,7 @@ addition to the Hatari window), they are not enabled by default.
 
 While Hatari installs few binary tools binaries:
 - hmsa (converts between MSA & ST disk images)
-- gst2ascii (outputs a.out and DRI/GST debug symbol table contents)
+- gst2ascii (outputs debug symbol table contents for Atari binaries)
 
 Most of its tools are Python and shell scripts.
 Their main run-time dependencies are:
@@ -282,34 +268,32 @@ Their main run-time dependencies are:
  --------------------------------------
 
 * cmake/ -- extra CMake files for configuring Hatari to build environment
+* ci/ -- helper script for CI builds
 * doc/ -- Hatari documentation
+  - de/, fr/ -- language specific extra documentation
+  - doxygen/ -- Hatari internal API doc generation
+  - images/ -- HTML documentation screenshots
 * python-ui/ -- external Python / Gtk UI for Hatari
+  - tests/ -- PyGtk experiments
 * share/ -- Hatari desktop integration; icons, mimetypes
 * src/ -- C-sources for Hatari emulator program
   - convert/ -- screen format conversion functions
   - cpu/ -- cycle-exact WinUAE CPU core (+FPU/MMU)
+    - uae/ -- CPU core internal headers
+    - jit/ -- WinUAE JIT implementation (not used by Hatari)
+    - machdep/ -- host dependent CCR flag handling
+    - softfloat/ -- more accurate SW based m68k FPU emulation
   - debug/ -- builtin debugger/profiler
-  - falcon/ -- Falcon emulation specific code (Videl used also for TT)
+  - falcon/ -- Falcon/DSP emulation specific code (Videl used also for TT)
   - includes/ -- common include files
   - gui-osx/ -- builtin MacOS GUI
+    - *.lproj/ -- localization
   - gui-sdl/ -- builtin SDL GUI for Hatari
   - gui-win/ -- MS Windows console code + icon
+  - includes/ -- C-source prototypes, enumerations etc
+  - sdl/ -- (most of the) SDL specific Hatari code
 * tests/ -- shell/python scripts & programs for testing emulator functionality
-  - autostart/ -- tests for TOS issues with too fast Hatari startup
-  - blitter/ -- blitter emulation tests
-  - buserror/ -- IO memory range bus error tests
-  - cpu/ -- few CPU instruction emulation tests
-  - cycles/ -- few CPU cycles emulation tests
-  - debugger/ -- Hatari debugger functionality tests
-  - gemdos/ -- GEMDOS HD emulation tests
-  - mem_end/ -- emulation tests for screen at end of RAM
-  - keymap/ -- programs showing keycodes to use in Hatari keymap files
-  - natfeats/ -- tests + example Atari code for emulation Native Features
-  - screen/ -- overscan emulation tests
-  - serial/ -- serial output emulation tests
-  - tosboot/ -- TOS bootup + basic GEMDOS operation tests
-  - unit/ -- few unit tests for Hatari helper functions
-  - xbios/ -- tests for BIOS intercept features
+  - See tests/readme.txt for details
 * tools/ -- shell/python scripts & programs useful with Hatari
   - debugger/ -- debug symbol conversion scripts & profile data tools
   - hconsole/ -- out-of-process Hatari control / automation tool
@@ -323,6 +307,6 @@ Their main run-time dependencies are:
 If you want to contact the authors of Hatari, please have a look at the file
 doc/authors.txt for the e-mail addresses or use the Hatari mailing list.
 
-Visit the website of Hatari on Tuxfamily.org for more details:
+Visit the website of Hatari for more details:
 
- http://hatari.tuxfamily.org/contact.html
+ https://www.hatari-emu.org/contact.html

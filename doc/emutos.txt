@@ -35,18 +35,20 @@ To run the emulator, a TOS ROM image is needed.  EmuTOS, a free
 implementation of TOS, is shipped with the official binary releases
 of Hatari.
 
-This tos.img ROM image is identical to the official binary package of
+This "tos.img" ROM image is identical to the official binary package of
 EmuTOS, which is available at the SourceForge website of EmuTOS.  For
 downloading other versions or the source code of EmuTOS, please visit
 the EmuTOS website.
 
-The tos.img file included with the latest Hatari releases is
-the etos1024k.img[1] from a preceding EmuTOS release:
+Starting from Hatari 2.5.0, the "tos.img" file included with the given
+Hatari release is the etos1024k.img[1] from a preceding EmuTOS release:
+- Hatari v2.6.0, v2.6.1:
+  https://sourceforge.net/projects/emutos/files/emutos/1.4/
 - Hatari v2.5.0:
   https://sourceforge.net/projects/emutos/files/emutos/1.3/
 
-The tos.img file included with earlier Hatari releases is
-the etos512k.img[1] from a preceding EmuTOS release:
+Before Hatari 2.5.0, the "tos.img" file included with the given
+Hatari release was the etos512k.img[1] from a preceding EmuTOS release:
 - Hatari v2.4.0, v2.4.1:
   https://sourceforge.net/projects/emutos/files/emutos/1.1.1/
 - Hatari v2.3.0, v2.3.1:
@@ -76,13 +78,16 @@ the etos512k.img[1] from a preceding EmuTOS release:
 - Hatari v0.95:
   http://sourceforge.net/projects/emutos/files/emutos/0.8.2/
 
-[1] This is the "all languages" version, intended mainly for TT & Falcon:
+[1] 1024k EmuTOS image is the "all languages" version, intended mainly
+    for TT & Falcon.
 
-    While 192k and 256k EmuTOS variants work better for ST and STE
-    programs in some cases, only the larger image variants contain
-    support for all the hardware.  Older 512k EmuTOS variants support
-    also all the EmuTOS languages, but nowadays only the new EmuTOS
-    1024k variant does (has space for all of them).
+    Older 512k EmuTOS variants support also all the EmuTOS languages,
+    but nowadays only the new EmuTOS 1024k variant has space for all
+    of them.
+
+    While 192k and 256k EmuTOS variants work better for some ST and
+    STE programs, only the larger image variants contain support for
+    all the hardware emulated by Hatari.
 
 Notes for older EmuTOS versions:
 
@@ -174,10 +179,6 @@ the TOS version.
 However, ST/STE games that work from HD and/or have been fixed to work
 with newer TOS versions, should usually be fine.
 
-Support for Falcon 16-bit resolution is still missing from EmuTOS v1.3
-AES/VDI, and Falcon DSP support was added only after EmuTOS v1.0
-release.
-
 Additionally, very old EmuTOS versions (up to v0.9.1) lacked support
 for the (deprecated) line-A graphics functions which are used in many
 free/shareware games (ones done with GFA basic etc).  This isn't an
@@ -204,7 +205,7 @@ the emutos2.map file (produced during EmuTOS build) to a format you
 can load to Hatari debugger with its "symbols" command[2].
 
 [1] http://sourceforge.net/mailarchive/message.php?msg_id=29381777
-[2] https://hatari.tuxfamily.org/doc/debugger.html#Debug_symbols
+[2] https://www.hatari-emu.org/doc/debugger.html#Debug_symbols
 
 After loading the symbols to the Hatari debugger, disassembling the
 problematic address should provide more clues for the problem.  Or you
@@ -301,7 +302,7 @@ commands. Memory state and addresses accessed by the instructions can
 be inspected with the "m" command.
 
 For more info on Hatari debugger usage, see the Hatari manual section
-on it: https://hatari.tuxfamily.org/doc/debugger.html
+on it: https://www.hatari-emu.org/doc/debugger.html
 
 
 Debugging freezes
@@ -379,12 +380,13 @@ Color demos:
 - Anomaly (by MJJ Prod)
 - April Fools (by DNT Crew)
 - Arsenite (by Dekadence)
+- Atom (128b by Acid Team)
 - Audiopacdemo (by X-Troll)
 - Bad Remix (by Dekadence)
 - Beast Scroll (by Joefish)
 - Beefect (by Effect)
 - Beyond Imagination (by NLC), in GFA basic
-- Bp0d (0-bitplane by Extreme)
+- Bp0d (0-bitplane by Extream)
 - Bread and Circuses (by Effect)
 - Breath (by Mystic Bytes)
 - Calimer-o-demo (by Oxygene)
@@ -392,6 +394,7 @@ Color demos:
 - Closure (by Sync)
 - Coast II Coast (by Sector One, 4kB intro)
 - Coolism (music disk, by Effect)
+- Cracking On (by Exocet & Tom & Adam Gilmore)
 - Crisis (by Joska)
 - Cross the Deserts (by Chronicle) - one screen gfx is partly corrupted
 - Crowd Teaser (by SMFX)
@@ -414,12 +417,17 @@ Color demos:
 - Flexiscroll 2021 (64k by Effect)
 - Flipo (by Oxygene)
 - Flux-AI slides (Spec512/50Hz slideshow by Anima)
+- Forever (great demo by 505 & Tom & modMate)
 - Frenchies (by Frenchies, 96KB intro)
 - Fruit is Great! (256-Bytro 50Hz overscan by Effect)
+- Fuckings To Nightbours (by Donald Trump Cracking Crew)
 - Glokzilla (by MJJ Prod)
+- Gnoël (by Flush)
 - Going (by Spice Boys)
+- Grand Theft Auto VI Cracktro (by Vectronix)
 - Grafik -und Sounddemo (by Eckhard Kruse)
 - Hallucinations (by Reservoir Gods)
+- Harstad Vito (by Dekadence)
 - Helvetin Hyttysiä (by Spice Boys)
 - Hiatus (by SMFX)
 - Hatari 2.2 intro (by Mr.Styckx)
@@ -443,8 +451,11 @@ Color demos:
 - Music Disc 1 (by G. Gaubatz)
 - New Year intro 1990 (by The Replicants)
 - No Cooper (by 1984)
+- No Grtz To SPKR (by Spice Boys)
 - No more froggies (by Sector1)
+- NYAN zeST (by DHS)
 - O-demo (by Oxygene)
+- Octogenarian (by Vlad)
 - Odd Stuff (by Dune & Sector One)
 - Oh no!! more froggies (by Sector One) - does not work with >2MB of RAM
 - Old (by Tom & Dubmood)
@@ -462,6 +473,7 @@ Color demos:
 - Paradise (by Dune Design)
 - Pause (by Cerebral Vortex / Dekadence / SMFX)
 - Phaleon Gigademo (by Next) - select "fast loader"
+- PONG_CRK (fake cracktro by Overlanders)
 - Posh (by Checkpoint)
 - POV disk 165 (except for EiL 99 invite)
 - Princess of Doom (by Brainheadsinteractive)
@@ -483,12 +495,13 @@ Color demos:
 - Silly Invaders (158-Bytro by Sedma)
 - Smag-FX 3 (by SMFX)
 - SNDH v4.8 update demo (PHF & KUA & DHS)
+- Somebody Has Owned Someone (by Spice Boys)
 - Sommar TTRAK (TTRAK v1.00 intro)
 - Sommarhack 1991 Best Of (by Pepe)
   - Glitches are intentional, not EmuTOS issue
 - Sommarhack 2011 invite (by DHS)
 - Sommarhack 2022 reminder (by DHS)
-- Sommarhack 2024 reminder (by DHS & others)
+- Sommarhack 2024 reminder (by DHS & others)*
 - Soundtracker (by Equinox)
 - Sowatt sprite record (rec16e, by Oxygene)
 - ST NICCC 2000 (by Oxygene)
@@ -525,6 +538,7 @@ Color demos:
 - Unstatic (by Cyprian, Dma-Sc & bob_er)
 - Virtual (by Equinox)
 - Visualize (by Checkpoint)
+- Vitsit Dottuun (by Extream, 50Hz only)
 - Vodka demo (by Equinox) - does not work with >1MB of RAM
 - We Accidentally Your Oculus (by Sector One)
 - We do not rip or recycle anything (by Spice Boys)
@@ -541,7 +555,6 @@ Color toys:
 
 Commercial game demos/previews (many of these are pretty good):
 - Baby Jo demo          (floppy only)
-- Babel demo
 - Beast II demo
 - Bloodwych demo        (floppy only)
 - Bolo demo             (floppy only)
@@ -573,6 +586,7 @@ Commercial game demos/previews (many of these are pretty good):
 - Killing Game Show demo
 - Knightmare demo       (needs <4MB RAM)
 - Leander demo
+- Legends of Valour demo (50Hz, STF47)
 - LLamasoft games
   http://minotaurproject.co.uk/lc-16bit.php
 - Lotus III demo        (floppy only, non-interactive)
@@ -602,6 +616,8 @@ Commercial game demos/previews (many of these are pretty good):
 - Stormball demo
 - Super Stario Land demo
 - Thunderstrike demo
+- Tony - Montezuma's Gold demo
+- Tower of Babel demo
 - Turrican II demo      (bus errors during game)
 - Up an' Away / Flip & Magnose demo
 - Venus Flytrap         (floppy only, Zero magazine disk)
@@ -610,9 +626,11 @@ Commercial game demos/previews (many of these are pretty good):
 Free/shareware/PD games:
 - 2048            (by Paradize)
 - A Day at the Races
+- Abombinaball    (STF47)
 - Alterra
 - Archon 3.5k     (by Deltaforce)
 - Alien Blockade* (quixx)
+- Atari Dash
 - Atax
 - Bellum*
 - Blaster
@@ -650,6 +668,7 @@ Free/shareware/PD games:
   Boulderdash, Demineur, Jewel, Qbert, Sokoban
 - Frogger*
 - Fuzzball*
+- Galaxian       (STF47)
 - GodPey         (floppy only, by Reservoir Gods)
 - Golgafrincham  (mod compile with 2-player minigame)
 - Grav*
@@ -662,9 +681,11 @@ Free/shareware/PD games:
 - Haywire        (use joystick 0)
 - Hector*
 - Hero           (RPG)
+- Hero Fantasy: The King's Sword
 - Hexmines*
 - Iceblox Plus*  (works on all Atari machines)
 - In nihilum reverteris (interactive color novel)
+- Insectroid*
 - Japlish        (line-A polygon lines)
 - Jetpac
 - Jitterbugs     (MIDI multiplayer, GFA, slow)
@@ -704,12 +725,14 @@ Free/shareware/PD games:
   https://github.com/dune-demogroup/roc-hell/
 - Rockfall*
 - Santafly
+- Shift*
 - Sideways
 - Sinister development games (shareware)
 - Snowball Fight (2-player)
 - Spacebar
 - Spacewar
 - Starball*      (shareware)
+- Stomp*         (STF47)
 - Super Pac-Man* (use joystick 0)
 - Superfly       (floppy only)
 - Sweeper
@@ -721,6 +744,7 @@ Free/shareware/PD games:
 - The errand boy (text adventure)
 - The lost world (line-A bitblits)
 - Toogle*        (works an any machine)
+- Toop
 - Trace
 - Unheart
 - Video poker    (shareware)
@@ -728,15 +752,16 @@ Free/shareware/PD games:
 - Warzone
 - Whip Snapper's race
 - Wolf3d*        (floppy version, Fread()s files opened as write-only)
-- Yak 3.5k       (gridrunner by Jeff Minter)
 - Xenon 3.5k     (by Michael Bittner)
+- Yak 3.5k       (gridrunner by Jeff Minter)
+- Yoomp*         (by Dekadence)
 - Zap
 - Zatacka        (multiplayer)
 
 Med-rez games:
+- Doom8088ST     (dithered BW graphics)
 - Hangman v2.0
 - Poker solitaire
-
 
 GEM / monochrome ST demos and games
 ...................................
@@ -751,6 +776,7 @@ Monochrome demos:
 - Monoscreen    (by Dead Braincells)
 - Monotheist    (by SMFX)
 - No rights     (by Dekadence)
+- Roland W-30 Editor Cracktro (by DHS)
 - The Mono Tale (by The Cyclemasters)
 
 GEM games:
@@ -855,6 +881,8 @@ Monochrome games:
 - Slither       (line-A draw/clear sprite, works also in color)
 - Space war     (bug: score missing)
 - Take2*        (line-A bitblit)
+- Tenebra-1*
+- Tenebra-2*
 - Wallball
 - Whack a Virus (SillyVenture 2022 edition)
 
@@ -926,6 +954,7 @@ incompatible.txt).
 
 Floppy-only (color) STOS games:
 - Diamond Ice       (joystick input doesn't work)
+- Insecticide       (joystick input doesn't work)
 - Islandstrike      (mouse input doesn't work)
 - Ozone             (fire at start doesn't work)
 - Vidigrid v2       (mouse input doesn't work)
@@ -980,6 +1009,9 @@ Working debuggers (support also e.g. TT):
 - Peacebug v1.19 (supports remote control over MIDI)
 - Peacebug v1.30
 - Templmon 2.01
+
+Working utilities:
+- Shifer Inside ST (expands GEM desktop to top & bottom borders)
 
 Working drawing / image viewing programs:
 - Degas Elite, see http://www.youtube.com/watch?v=G4st-x4-BJg (at 16:30)
@@ -1061,6 +1093,7 @@ Following STE specific & enhanced demos, games and apps work fine with
 EmuTOS.
 
 Color demos:
+- !cube vs. YM2149 (by Aggression)
 - 1st Step (by Tobe/MJJ Prod)
 - 20 years megademo (by Atari scene collective)
 - 20 years Atari STE megademo (by Paradox)
@@ -1068,14 +1101,16 @@ Color demos:
 - 21 bobs (by Anima, needs 50Hz)
 - 32768 colors showdown (by Tronic of Effect)
 - 3D full (by Oxygene)
+- 68k Inside 2025 (by Dekadence)
 - 96 Shades of Gray (by Paradox, >1MB, panics at end/exit)
+- A Letter to Sommarhack (by Effect)
 - Again (by Paradox)
 - AltParty 2008 intro (by Paradox)
 - Ambermoon Music demo (by Psycho Hacking Force)
 - Amiga Demo 2 (by Oxygene), music disk
-- Antiques (by Dune & Sector One)
 - An Cool on STE
 - Another kid story (MJJ prod 2009)
+- Antiques (by Dune & Sector One)
 - Appendix (by DHS)
 - Armada is dead (by Aggression)
 - ATM 10 Years (by Checkpoint)
@@ -1094,6 +1129,8 @@ Color demos:
 - City Frames (by DHS)
 - Core Flakes (by New Core)
 - Devotion (by Excellence in Art)
+- DMA Bliss (by Effect & Ephidrena & SMFX)
+- Double Rez Trouble (by DHS)
 - Dynamite (by Unit 17)
 - E605 (by Light)
 - Ecstasy part A (by Inner Circuit Explorers)
@@ -1110,6 +1147,7 @@ Color demos:
 - HighResMode 1 & 2 (by Paradox)
 - I got invited to Psycho Hack (by Modula)
 - Illusion (by Next)
+- Inscape To Fractalus (4k overscan by Acid Team)
 - It's A Girl (by Paradox)
 - It's A Girl 2 (by Paradox)
 - Jam-Cols (by ICE)
@@ -1124,6 +1162,7 @@ Color demos:
 - Massacre (by DHS)
 - Mathematica (by Aura)
 - Maxymizer compo 2006 (by gwEm)
+- Mea Culpa (by NoExtra)
 - Meshake (by Spice Boys)
 - Mind Rewind (by Reservoir Gods)
 - Monogatari (monochrome, by Cerebral Vortex)
@@ -1135,12 +1174,16 @@ Color demos:
 - New Year -94 Intro (by Extream)
 - No Monkey (by Tomchi)
 - No Signal (ADPCM musicdisk by DHS)
+- Noname intro (by Baky, DemoBit 1995)
+- Out A Time (1st at Silly Venture 2024)
 - Pacemaker (by Paradox), end part works only from floppy image
 - Paracon 6 & 7 remindtros (by Paradox)
 - Parallax Distorter 2 (by Solomon)
+- Pixel Dreams (by Bohemian Grove)
 - Power Rise (by Light)
 - Realtime (by MJJ Prod)
 - Reanimation (by Syntax)
+- Relapse HD (by Cybernetics)
 - Revise and Revisit (by DHS)
 - Rise of the blackstorm (by Mystic Bytes)
 - Riverside (by DHS)
@@ -1150,6 +1193,7 @@ Color demos:
 - Satan stole my Atari (by Lamers)
 - Save the Earth (by Defence Force)
 - Scene? Ay Mamba! (by Spice Boys)
+- Short and Curly (by Avena + RG)
 - Sinfull Sinuses (by Chronicle)
 - Sierpinski overdose 4K (by GGN), med-rez+blitter only
 - Sommarhack 2010 invite (by DHS)
@@ -1167,12 +1211,14 @@ Color demos:
 - Takeover (by Lamers)
 - TalkTalk2 (by XiA)
 - Techno drugs (by NLC)
+- The AI slide show (by Slime-Soft)
 - The Art of Profanity (by SMFX & DHS)
 - The Star Wars Demo (by The Arctic Land)
 - Tribute to Rainbow TOS (by 505 & Tobe)
 - Tyranny (by DHS)
 - UFO (by Dune & Sector1)
 - Unbeatable (by Masters of Electric City)
+- VibeCoding (by Defence Force)
 - Vision (by POV)
 - Vulgar Display of Power (by Extream)
 - We Accidentally Released (by SMFX & KÜA)
@@ -1208,16 +1254,19 @@ Color games:
 - Chroma Grid (including D-BUG intro+trainer)
 - ChuChu Rocket* (RG's full version)
 - Crash Time Plumber
+- Defender* (Williams version port, works also on ST & Falcon)
 - Detonator
 - Dread* (playable Wolf3D clone demo v1905)
 - Droid STE rewrite
 - Dynabusters+*
 - Exchange Puzzle (SV20 edition, optional STe palette support)
+- Faster*
 - Frantick
 - Frogs (optional STE audio/blitter support, MIDI multiplayer)
 - Giana Sisters STE rewrite:
   http://atari-forum.com/viewtopic.php?f=3&t=26360
 - H Mec 2 (line-A bitblit)
+- Invasion of the Emerald Saucers
 - Metal Slug STE (mission 1)
 - Micromachines preview (by .tscc)
 - Mr Boomer (line-A bitblit)
@@ -1243,6 +1292,7 @@ Color games:
   http://atari-forum.com/viewtopic.php?f=3&t=38121
 - ScummST (STE enhanced)
   http://www.happydaze.se/scummvm-lite-atari/
+- Shotgun (STE enhanced)
 - Skulls (shareware "minesweeper")
 - Space Zot
 - Sporny's Wrecking Ball
@@ -1294,6 +1344,9 @@ STE (enhanced) music applications:
 - Protracker 2 STE
 - Sirius Player
 
+STE (enhanced) utilities:
+- Shifer Inside STE (expands GEM desktop to top & bottom borders)
+
 
 Non-working STE programs
 ........................
@@ -1301,6 +1354,8 @@ Non-working STE programs
 Some non-working demos:
 - Original Beat Maker (OG.PRG, SV2019, by CrazyQ)
   - STE recognization fails with TOS 2.x / EmuTOS -> bus error
+- YMSE (by Ephidrena)
+  - Musicdisk dentro works only under Falcon, or original STE TOS
 - VGA slideshow (by Light)
 
 Non-working games and music programs:
@@ -1326,6 +1381,7 @@ Working applications:
 - Calamus SL demo (1991 demo version)
 - Calamus SL/L/LE 20xx lite versions
   - Need either GDOS or older EmuTOS v0.9.5 - v0.9.12
+- Hardware 2.0 (works also on Falcon)
 - Mandelbrot playtime (fracplay, uses FPU)
 - M_PLAYER v4.02
   - https://gtello.pagesperso-orange.fr/mplayere.htm
@@ -1370,14 +1426,24 @@ Working games:
 - GEM Manga Puzzle (needs 256 color mode)
 - GEM Milanopoly
 - GEM NetHack v3.4.3
+- GEM Panic 0.90
+  - Needs at least 460x400@256 mode for full glory (= VDI mode on TT)
 - GEM Santarun
+- GEM Shapes
+  - Sounds do not work on ST + needs at least 480x400 mode
 - GEM Slashem v3.3.1
+- "Hacked" Heretic & Hexen (SDL ports by Miro)
+- Kniff (Omikron Basic v3.60)
+  - Needs 640x480@256 mode (VDI mode on TT, VGA monitor on Falcon)
+- Mau Mau de luxe (Omikron Basic v3.60)
+  - Needs 800x600@256 mode (8-bit VDI mode)
 - OpenDUNE
 - OpenTTD (start from TT-low with 256MBs of TT-RAM)
 - Oxyd (Falcon version)
 - PM Doom, Heretic & Hexen v0.55 (ports by Patrice Mandin)
-- ScummVM 2.8 (lite build by Miro)
- - Official upstream version (35 engines, 280+ game variants recognized)
+- ScummVM 2.8, 2.9 (lite build by Miro)
+ - Official upstream version (37 engines, 300+ game variants recognized)
+- STDOOM, first 020+ version
 - The Ultimate Minesweeper (GEM)
 
 Most of above GEM games run even on ST, but only TT (and Falcon) have
@@ -1471,6 +1537,7 @@ Demos working under EmuTOS >= v1.1 (with DSP support):
 - Aggressive Party 2 4k (NoCrew)
 - Agony (by DNT crew)
 - At Night They Come (by Bohemian Grove)
+- Back To The ST (by Bohemian Grove)
 - Beams (by .tscc)
 - Bird to be alive (by Dune etc)
 - Bound 3, Bound 5 (by Crac)
@@ -1483,8 +1550,6 @@ Demos working under EmuTOS >= v1.1 (with DSP support):
 - Cycedelic knockout (by Mugwumps)
 - Dan's Lustiges Kinderfest (by Lazer)
 - Derealization (060, by DHS)
-- Doomino (by STAX)
-  - Startup text broken, need TC terminal output
 - Enraged (by Avena)
 - Ex Illusion (by Aura)
 - F22.0 (060, by Lamers)
@@ -1499,6 +1564,8 @@ Demos working under EmuTOS >= v1.1 (with DSP support):
 - JESTERday (by POV), musicdemo
 - Joy (by New Beat)
   - Works also with v1.0, but MP2 DSP music requires >v1.0
+- Kusipäät Kaljanpöllijät (by Dekadence)
+  - Monochrome, with DSP music
 - Lamer than Lamers (060, by Lamers)
 - Laser Days E.P. (by .tSCc)
   - Works also with v1.0, but MP2 DSP music requires >v1.0
@@ -1520,6 +1587,7 @@ Demos working under EmuTOS >= v1.1 (with DSP support):
 - Stercus Accidit (060, by Fit)
 - Stocasto (by NoCrew)
   - Works also with v1.0, but then DSP 3D objects are missing
+- Taedium Vitae (by Dune)
 - Tere Ra'I (by Cerebral Vortex / Dune / Sector One)
 - The mountains flight (by Cruor)
 - The Ultimate Seduction (Sommarhack 2020 invite)
@@ -1545,7 +1613,7 @@ Demos working under EmuTOS >= v1.3 (XBios TC support):
 - Multitech (by Cybernetics)
   - Part of Geotech demo, needs DSP + TC mode
 
-Demos working under EmuTOS Git version (full TC support):
+Demos working under EmuTOS >= v1.4 (full TC support):
 - 128dist (128-Bytro by DHS)
   - Needs FPU + started from 320-wide TC mode
 - Bound & Bound2 (Crac)
@@ -1557,6 +1625,7 @@ Demos working under EmuTOS Git version (full TC support):
   Lettuce, Pasta, Wormhole (128-Bytros by Reservoir Gods)
   - Need to be started from 320-wide TC mode, some with FPU
 - Doomino (STAX)
+  - Startup text needs TC terminal output, otherwise OK with v1.1
 - GemDemo (by DHS & AssemSoft):
   - Needs to be started from TC mode
 - MengerMarcherFC (256-Bytro by atariBDSM)
@@ -1564,12 +1633,12 @@ Demos working under EmuTOS Git version (full TC support):
 - Spin176 (256-Bytro by MKM / Lamers)
   - Needs FPU + started from 320x200 TC mode
 
-Demos working partly under EmuTOS >= v1.3:
+Demos working partly under EmuTOS >= v1.4:
 - 124 beers later (by Trio)
   - Works already with v1.0, but fighter screen DSP textures need v1.1
   - Ground texture missing in last screen
 
-Broken demos (with EmuTOS v1.3):
+Broken demos (with EmuTOS v1.4):
 - Who Okayed This?
   - Both the new and (fixed) old intros (epidemic.prg) do work,
     (fixed) music disk (zikdisk.tos) panics to bus error at -1
@@ -1608,8 +1677,6 @@ Games working under EmuTOS >= v1.0:
 - Jeu de Poker (VGA only)
   - Needs 640x480@256 mode
 - King Solitaire
-- Kniff (VGA only, Omikron Basic v3.60)
-  - needs 640x480@256 mode
 - Lamemine
 - L'Abbaye Des Morts
 - Let's play Shanghai
@@ -1684,6 +1751,7 @@ Games working under EmuTOS >= v1.1.1 (DSP support + fixes):
 - Racer 2* (by Thadoss/Dune)
 - Running* (shareware version)
 - Slippery Sam
+- SVO 30 v1.0 (Falcon "Minecraft" by d.m.l)
 - Static (Patience by Reservoir Gods)
   - For v1.0, disable DSP from Hatari
 - TsccTron
@@ -1697,7 +1765,7 @@ Games working under EmuTOS >= v1.1.1 (DSP support + fixes):
 Games working under EmuTOS >= v1.2:
 - Tetrhex (1.41)
 
-Games working under EmuTOS >= 1.3 (XBios TC support):
+Games working under EmuTOS >= v1.3 (XBios TC support):
 - Confusion demo 1 & 2
 - Gravon (demo + full version)
 - Moonspeeder (preview 2)
@@ -1705,12 +1773,12 @@ Games working under EmuTOS >= 1.3 (XBios TC support):
 - Conquest of Elysium II v2.0 & 2.3 (uses VDI calls)
 - Tron 2 (VGA only)
 
-Games working under EmuTOS Git version (full TC support):
+Games working under EmuTOS >= v1.4 (full TC support):
 - Boulder Smash Falcon (Omikron Basic)
   - Needs to be started from 480x400 or larger TC mode
 - DangerZone
   - Needs 8MB + started from 640x480@16-color VGA mode
-  - Without palette<->VDI index compatiblity fix, errors on start
+  - Without palette<->VDI index compatibility fix, errors on start
 - Hong Tron (128b game by Reservoir Gods)
   - Needs to be started from 320x400 TC mode
 - Pous-Pous (GEM puzzle)
@@ -1748,10 +1816,10 @@ Partly working games:
   - Fire button works only until game itself starts
   - Works only with 8MB RAM
 
-Broken games (with EmuTOS v1.3):
+Broken games (with EmuTOS v1.4):
 - Downfall
   - Dialog complains "Error while loading BLACKWHT.BGR".
-    It is already open, so issue may be Setscreen() following it
+    It is already opened, so issue may be Setscreen() following it
 - It's Great (start from st-med rez)
   - Mouse doesn't work
 - "K" preview* (by EXA)
@@ -1759,12 +1827,12 @@ Broken games (with EmuTOS v1.3):
 - Moongame
   - "Classic Falcon" (A) option bus errors to $59f1fffe read,
     when the actual game would start
-  - "fast Falcon" (B) option gets inifite illegal DSP instruction
-    errors afer pressing joypad button 3 in main menu
+  - "fast Falcon" (B) option gets infinite illegal DSP instruction
+    errors after pressing joypad button 3 in main menu
 - Neurobot
   - Both intro & game just exit immediately (TOS version?)
 - Reeking Rubber
-  - Broken graphics & freeze on game start, uses VDI draw calls
+  - Broken graphics & pterm0() on game start, uses VDI draw calls
 - SBM v0.8 & v1.03* (Bomberman clone)
   - Bus error panic with 8MB, illegal instruction one with 14MB
 - Watership (VGA only)
@@ -1845,12 +1913,12 @@ Applications working under EmuTOS >= v1.3 (XBios TC support):
   - Both the app itself and all viewer TTPs work
 - ScummVm for Falcon + clones
   - Older TC-only versions from OL & Miro
-- ScummVM 2.8 (full build by Miro)
-  - Official upstream version (54 engines, 370+ game variants recognized)
+- ScummVM 2.8, 2.9 (full build by Miro)
+  - Official upstream version (56 engines, 390+ game variants recognized)
 - Centview (GEM image viewer)
   - After showing an image, GUI is not always refreshed
 
-Applications working under EmuTOS Git version (full TC support):
+Applications working under EmuTOS >= v1.4 (full TC support):
 - Indypaint
   - Crashes if not started from TC mode (line-A init, hide/show mouse)
   - Interact with mouse & keys; F1-F5: popup menus, Space: palette

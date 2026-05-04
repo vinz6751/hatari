@@ -8,8 +8,6 @@
 */
 const char ShortCut_fileid[] = "Hatari shortcut.c";
 
-#include <SDL.h>
-
 #include "main.h"
 #include "dialog.h"
 #include "audio.h"
@@ -25,10 +23,8 @@ const char ShortCut_fileid[] = "Hatari shortcut.c";
 #include "shortcut.h"
 #include "debugui.h"
 #include "sound.h"
-#include "sdlgui.h"
-#include "video.h"
+#include "timing.h"
 #include "avi_record.h"
-#include "clocks_timings.h"
 #include "statusbar.h"
 
 static SHORTCUTKEYIDX ShortCutKey = SHORTCUT_NONE;  /* current shortcut key */
@@ -40,8 +36,8 @@ static SHORTCUTKEYIDX ShortCutKey = SHORTCUT_NONE;  /* current shortcut key */
  */
 static void ShortCut_FullScreen(void)
 {
-	static Uint32 last_ticks = 0;
-	Uint32 cur_ticks;
+	static int64_t last_ticks = 0;
+	int64_t cur_ticks;
 
 	/* SDL2 sometimes reports multiple key up and down events when toggling
 	 * fullscreen mode, even though the key has not been released in between
@@ -49,7 +45,7 @@ static void ShortCut_FullScreen(void)
 	 * To avoid that we're going back and forth between fullscreen mode and
 	 * windowed mode in this case, we have to ignore full screen shortcut
 	 * events that happen too often. */
-	cur_ticks = SDL_GetTicks();
+	cur_ticks = Timing_GetTicks() / 1000;
 	if (cur_ticks - last_ticks < 200)
 		return;
 	last_ticks = cur_ticks;
@@ -82,11 +78,7 @@ static void ShortCut_MouseGrab(void)
 {
 	bGrabMouse = !bGrabMouse;        /* Toggle flag */
 
-	/* If we are in windowed mode, toggle the mouse cursor mode now: */
-	if (!bInFullScreen)
-	{
-		SDL_SetRelativeMouseMode(bGrabMouse);
-	}
+	Screen_GrabMouseIfNecessary();
 }
 
 
@@ -120,22 +112,7 @@ static void ShortCut_RecordSound(void)
  */
 static void ShortCut_RecordAnimation(void)
 {
-	/* Are we currently recording? If so stop */
-	if (Avi_AreWeRecording())
-	{
-		/* Stop */
-		Avi_StopRecording();
-	}
-	else
-	{
-		/* Start animation */
-		Avi_StartRecording ( ConfigureParams.Video.AviRecordFile , ConfigureParams.Screen.bCrop ,
-			ConfigureParams.Video.AviRecordFps == 0 ?
-				ClocksTimings_GetVBLPerSec ( ConfigureParams.System.nMachineType , nScreenRefreshRate ) :
-				ClocksTimings_GetVBLPerSec ( ConfigureParams.System.nMachineType , ConfigureParams.Video.AviRecordFps ) ,
-			1 << CLOCKS_TIMINGS_SHIFT_VBL ,
-			ConfigureParams.Video.AviRecordVcodec );
-	}
+	Avi_ToggleRecording();
 }
 
 
@@ -185,9 +162,8 @@ static void ShortCut_FastForward(void)
 }
 
 
-/*-----------------------------------------------------------------------*/
 /**
- * Shortcut to 'Boss' key, ie minmize Window and switch to another application
+ * Shortcut to 'Boss' key, ie minimize Window and switch to another application
  */
 static void ShortCut_BossKey(void)
 {
@@ -196,19 +172,17 @@ static void ShortCut_BossKey(void)
 
 	if (bGrabMouse)
 	{
-		SDL_SetRelativeMouseMode(false);
-		bGrabMouse = false;
+		Screen_UngrabMouse();
 	}
 	Main_PauseEmulation(true);
 
 	/* Minimize Window and give up processing to next one! */
-	SDL_MinimizeWindow(sdlWindow);
+	Screen_MinimizeWindow();
 }
 
 
-/*-----------------------------------------------------------------------*/
 /**
- * Shorcut to debug interface
+ * Shortcut to debug interface
  */
 static void ShortCut_Debug(void)
 {
@@ -222,9 +196,8 @@ static void ShortCut_Debug(void)
 }
 
 
-/*-----------------------------------------------------------------------*/
 /**
- * Shorcut to pausing
+ * Shortcut to pausing
  */
 static void ShortCut_Pause(void)
 {
@@ -232,19 +205,15 @@ static void ShortCut_Pause(void)
 		Main_PauseEmulation(true);
 }
 
+
 /**
- * Shorcut to load a disk image
+ * Shortcut to load a disk image
  */
 static void ShortCut_InsertDisk(int drive)
 {
 	char *selname, *zip_path = NULL;
 	const char *tmpname;
 	char FileNameB[ FILENAME_MAX ];
-
-	bool bOldMouseMode = SDL_GetRelativeMouseMode();
-
-	if (SDLGui_SetScreen(sdlscrn))
-		return;
 
 	/* Save current names for drive 1 before checking autoinsert */
 	strcpy ( FileNameB , ConfigureParams.DiskImage.szDiskFileName[ 1 ] );
@@ -256,9 +225,7 @@ static void ShortCut_InsertDisk(int drive)
 
 	Main_PauseEmulation(true);
 
-	SDL_SetRelativeMouseMode(SDL_FALSE);
-	selname = SDLGui_FileSelect("Floppy image:", tmpname, &zip_path, false);
-	SDL_SetRelativeMouseMode(bOldMouseMode);
+	selname = DlgFloppy_ShortCutSel(tmpname, &zip_path);
 
 	if (selname)
 	{
@@ -447,14 +414,11 @@ static SHORTCUTKEYIDX ShortCut_CheckKey(int symkey, int *keys)
  * If press is set, store the key array index.
  * Return true if key combo matched to a shortcut
  */
-bool ShortCut_CheckKeys(int modkey, int symkey, bool press)
+bool ShortCut_CheckKeys(int symkey, bool with_mod, bool press)
 {
 	SHORTCUTKEYIDX key;
 
-	if (symkey == SDLK_UNKNOWN)
-		return false;
-
-	if (modkey & (KMOD_RALT|KMOD_LGUI|KMOD_RGUI|KMOD_MODE))
+	if (with_mod)
 		key = ShortCut_CheckKey(symkey, ConfigureParams.Shortcut.withModifier);
 	else
 		key = ShortCut_CheckKey(symkey, ConfigureParams.Shortcut.withoutModifier);

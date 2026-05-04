@@ -1,18 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 #
 # A Debug UI for the Hatari, part of Python Gtk Hatari UI
 #
-# Copyright (C) 2008-2024 by Eero Tamminen
+# Copyright (C) 2008-2025 by Eero Tamminen
 #
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import os
 import gi
@@ -20,12 +12,11 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk
 from gi.repository import Gdk
-from gi.repository import Pango
 
 from config import ConfigStore
 from uihelpers import UInfo, create_button, create_toggle, \
      create_table_dialog, table_add_entry_row, table_add_widget_row, \
-     get_save_filename, FselEntry
+     FselEntry
 from dialogs import TodoDialog, ErrorDialog, AskDialog, KillDialog
 
 
@@ -412,7 +403,8 @@ class HatariDebugUI:
             window.connect("delete_event", self.quit)
         else:
             window.connect("delete_event", self.hide)
-        window.set_icon_from_file(UInfo.icon)
+        info = UInfo()
+        window.set_icon_from_file(info.icon)
         window.set_title(title)
         window.add(vbox)
         return window
@@ -573,7 +565,6 @@ def main():
         args = None
     hatariobj.run(args)
 
-    info = UInfo()
     debugui = HatariDebugUI(hatariobj, True)
     debugui.window.show_all()
     Gtk.main()

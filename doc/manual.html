@@ -24,7 +24,7 @@
 <h1 class="pageheader">Hatari User's Manual</h1>
 
 <p class="pageheader">
-Version 2.5.0, April 2024
+Version 2.6.1, August 2025
 </p>
 <p class="pageheader">
 Manual written by: <strong>Thomas Huth</strong>, <strong>Matthias Arndt</strong>
@@ -33,7 +33,7 @@ Manual written by: <strong>Thomas Huth</strong>, <strong>Matthias Arndt</strong>
 <p class="pageheader">
 Hatari on the WWW:
 <strong>
-<a href="http://hatari.tuxfamily.org/">http://hatari.tuxfamily.org/</a>
+<a href="https://www.hatari-emu.org/">https://www.hatari-emu.org/</a>
 </strong>
 </p>
 
@@ -129,7 +129,7 @@ common to all (FDC, IKBD, MFP, MIDI, PSG, RS-232...).</p>
     </tr>
     <tr>
       <td class="hwfeat">Horizontal scrolling</td>
-      <td></td><td></td><td>X</td><td>X</td><td>X</td><td>X</td>
+      <td></td><td></td><td>X</td><td>X</td><td></td><td>X</td>
       <td class="hwnote">Only possible with tricks on the normal ST</td>
     </tr>
     <tr>
@@ -151,12 +151,12 @@ common to all (FDC, IKBD, MFP, MIDI, PSG, RS-232...).</p>
       <td>[1]</td><td>[1]</td><td>[1]</td><td>[1]</td><td>[2]</td><td>X</td>
       <td class="hwnote">
       [1] = add-on, requires EmuTOS or TOS 2.06 for booting<br/>
-      [2] = add-on, requires EmuTOS for booting</td>
+      [2] = add-on, requires EmuTOS or patched TOS 3.x for booting</td>
     </tr>
     <tr>
       <td class="hwfeat">SCSI</td>
       <td></td><td></td><td></td><td></td><td>X</td><td>X</td>
-      <td class="hwnote">Hatari support is incomplete</td>
+      <td class="hwnote">Hatari support is incomplete, defaults to SCSI v1</td>
     </tr>
     <tr>
       <td colspan="7" class="hwsubdiv">Other HW features:</td><td></td>
@@ -199,9 +199,14 @@ common to all (FDC, IKBD, MFP, MIDI, PSG, RS-232...).</p>
       <td class="hwnote">[x] = Hatari patches TT-RAM support to TOS v4.04</td>
     </tr>
     <tr>
+      <td class="hwfeat">SCU</td>
+      <td></td><td></td><td></td><td>X</td><td>X</td><td></td>
+      <td class="hwnote">System IRQ are correctly masked and forwarded to the CPU/IPL</td>
+    </tr>
+    <tr>
       <td class="hwfeat">VME bus</td>
       <td></td><td></td><td></td><td>X</td><td>X</td><td></td>
-      <td class="hwnote">This expansion bus is not supported by Hatari</td>
+      <td class="hwnote">Although SCU registers are emulated, this expansion bus is not supported by Hatari</td>
     </tr>
   </tbody>
   <tfoot>
@@ -217,9 +222,6 @@ common to all (FDC, IKBD, MFP, MIDI, PSG, RS-232...).</p>
     </tr>
   </tfoot>
 </table>
-
-<p>(EmuTOS v1.3+ included with Hatari binary packages supports
-all Atari HW except for Falcon 16-bit Videl TrueColor mode.)</p>
 
 
 <h3>Features</h3>
@@ -238,7 +240,8 @@ all Atari HW except for Falcon 16-bit Videl TrueColor mode.)</p>
   <li>support for (MSA, GZip and Zip) compressed floppy disk images
       (with optional write-protection)</li>
   <li>support for whole system state snapshot save/restore</li>
-  <li>driver for extended VDI resolutions</li>
+  <li>driver for extended VDI resolutions (this patches TOS, the system
+      variables and the so-called line-A variables for bigger resolutions)</li>
   <li>sound recording as .WAV or .YM files</li>
   <li>screenshots in PNG, BMP, NEO or XIMG format</li>
   <li>AVI video capture with sound</li>
@@ -285,6 +288,13 @@ all Atari HW except for Falcon 16-bit Videl TrueColor mode.)</p>
   <li>TOS versions 1.00, 1.02, 1.04 and 2.06 (and EmuTOS) can be used in ST mode.</li>
 </ul>
 
+<p>
+Note: The real ST/STE hardware only can deal with RAM sizes up to 4 MiB. If you
+configure more than 4 MiB for your emulated system, Hatari will patch the
+system variables to make TOS aware of the extended memory, and it will fake
+DMA support for more than 4 MiB (which does not exist on real hardware).
+</p>
+
 <h4>Mega ST hardware emulation</h4>
 <ul>
   <li>Builtin real time clock (RTC)</li>
@@ -312,7 +322,8 @@ and later HW:</p>
 <ul>
   <li>Builtin real time clock (RTC)</li>
   <li>DD/HD mode and DIP switch registers</li>
-  <li>Experimental Mega STE/TT/Falcon SCC channel B serial port support (incomplete)</li>
+  <li>8/16 MHz CPU speed and cycle accurate external 16 KB cache</li>
+  <li>Full support for SCC (LAN, Serial and Modem)</li>
   <li>TOS versions 2.05 and 2.06 (and EmuTOS) can be used in Mega STE mode.</li>
 </ul>
 
@@ -323,8 +334,15 @@ and later HW:</p>
   <li>Second (TT) MFP chip</li>
   <li>ST/TT palette switching and video shifter</li>
   <li>Up to 1024 MiB of TT-RAM and 32-bit memory addressing</li>
+  <li>Full support for SCC (LAN, Serial and Modem)</li>
+  <li>NVRAM for persistent OS configuration and RTC (real time clock)</li>
   <li>Only TOS version 3.05 and 3.06 (and 512k/1024k EmuTOS) can be used in TT mode.</li>
 </ul>
+
+<p>
+Note: Only the 68030 CPU and the 68040 CPU can be used in TT mode when using
+the original TOS.
+</p>
 
 <h4>Falcon hardware emulation</h4>
 <p>There is support for following additional Falcon features:</p>
@@ -340,14 +358,20 @@ and later HW:</p>
       sample rates</li>
   <li>Experimental IDE master and slave emulation for hard drive support</li>
   <li>Experimental NCR5380 SCSI emulation for hard drive support (incomplete)</li>
+  <li>Full support for SCC (Lan and Modem)</li>
+  <li>NVRAM for persistent OS configuration and RTC (real time clock)</li>
   <li>TOS versions 4.00, 4.02, 4.04 and 4.92 (and 512k/1024k EmuTOS) can be used in Falcon
       mode. There is also experimental support for TOS 2.07 (the "Sparrow"-TOS),
       and for <a href="m68k-linux.txt">Linux</a>, but they are not recommended
       for use yet</li>
 </ul>
+
 <p>
-Both TT and Falcon emulation support NVRAM for persistent OS configuration
-and RTC (real time clock).
+Note: For using TT-RAM in Falcon mode, Hatari patches TOS 4.04 with the right
+&quot;Maddalt()&quot; call and code to add a &quot;_FRB&quot; cookie. It also
+alters the system variables accordingly, since the original Falcon TOS does
+not support TT-RAM otherwise. For supporting the 68040 and 68060 CPUs in
+Falcon mode, Hatari patches TOS with code specific to these CPUs.
 </p>
 
 <p>See the developers' <span class="file">doc/todo.txt</span> file
@@ -583,7 +607,10 @@ languages), country code selects also TOS language.
 </p><p class="paramdesc">
 Alternatively, one can use "tos-lang-change" tool from EmuTOS project
 to modify country code in the ROM image file itself. That works
-also for TOS v4</p>
+also for TOS v4.
+</p><p class="paramdesc">
+Note: NVRAM settings take precedence, so for machines with NVRAM, you
+should use --layout and --language instead</p>
 <p class="parameter">--layout &lt;x&gt;</p>
 <p class="paramdesc">Set NVRAM keyboard layout value.
 Set NVRAM keyboard layout value. While both TT and Falcon machines
@@ -608,6 +635,10 @@ forwarding) Hatari output</p>
 <p class="paramdesc">Autostarts given program, if TOS finds it.
 Program needs to be given with full path it will have under
 emulation, for example "C:\DIR\PROGRAM.PRG"</p>
+<p class="parameter">--fast-forward-key-repeat
+&lt;bool&gt;</p>
+<p class="paramdesc">Use keyboard auto repeat when using
+fast forward mode (default true)</p>
 
 <h3>Common display options</h3>
 <p class="parameter">-m,
@@ -619,8 +650,13 @@ color</p>
 <p class="paramdesc">Select monitor type (x =
 mono/rgb/vga/tv)</p>
 <p class="parameter">--tos-res &lt;x&gt;</p>
-<p class="paramdesc">Select TOS resolution for color monitors
-(x = low/med/high/ttlow/ttmed)</p>
+<p class="paramdesc">
+Select TOS resolution for color monitors, x = "low" / "med" / "high" /
+"ttlow" / "ttmed" / "tclow" / "tcmed" / "tchigh". Which correspond to
+standard 320x200@16 + 640x200@4 + 640x400@2 ST resolutions, 320x480@256
++ 640x480@16 TT resolutions, Falcon specific 320x240@TC + 320x480@TC
+resolutions on VGA monitors, and 320x200@TC + 320x400@TC + 640x400@TC
+resolutions on RGB monitors</p>
 <p class="parameter">-f,
 --fullscreen</p>
 <p class="paramdesc">Start the emulator in fullscreen
@@ -636,12 +672,12 @@ mode</p>
 <p class="paramdesc">Show ST/STE/Falcon screen borders
 (for low/med resolution overscan demos)</p>
 <p class="parameter">--frameskips
-&lt;x&gt;</p>
-<p class="paramdesc">Skip &lt;x&gt; frames after each
+&lt;int&gt;</p>
+<p class="paramdesc">Skip &lt;int&gt; frames after each
 displayed frame to accelerate emulation (0=disabled, &gt;4 uses
 automatic frameskip with given value as maximum)</p>
-<p class="parameter">--slowdown &lt;x&gt;</p>
-<p class="paramdesc">Slow down emulation by factor of x
+<p class="parameter">--slowdown &lt;int&gt;</p>
+<p class="paramdesc">Slow down emulation by given factor
 (used as multiplier for VBL wait time)</p>
 <p class="parameter">--statusbar
 &lt;bool&gt;</p>
@@ -651,9 +687,9 @@ etc)</p>
 &lt;bool&gt;</p>
 <p class="paramdesc">Show overlay drive led when statusbar
 isn&rsquo;t shown</p>
-<p class="parameter">--max-width &lt;x&gt;</p>
+<p class="parameter">--max-width &lt;int&gt;</p>
 <p class="paramdesc">Preferred / maximum Hatari screen width</p>
-<p class="parameter">--max-height &lt;x&gt;</p>
+<p class="parameter">--max-height &lt;int&gt;</p>
 <p class="paramdesc">Preferred / maximum Hatari screen height.
 </p><p class="paramdesc">
 Maximum width and height options are part of Hatari's Atari monitor
@@ -694,17 +730,18 @@ Disabling low resolution doubling like this is not recommended for
 Falcon emulation because TOS v4 bootup and some demos switch
 resolutions frequently.
 </p>
+<p class="parameter">--vsync &lt;bool&gt;</p>
+<p class="paramdesc">Limit screen updates to host monitor refresh rate</p>
 <p class="parameter">--disable-video
 &lt;bool&gt;</p>
 <p class="paramdesc">Run emulation without displaying video (audio only)</p>
 
 <h3>ST/STE specific display options</h3>
 <p class="parameter">--spec512
-&lt;x&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">Hatari uses this threshold to decide
 when to render a screen with the slower but more accurate
-Spectrum512 screen conversion functions (0 &lt;= x &lt;= 512,
-0=disable)</p>
+Spectrum512 screen conversion functions (0-512, 0=disable)</p>
 <p class="parameter">--video-timing
 &lt;x&gt;</p>
 <p class="paramdesc">Wakeup State for MMU/GLUE (x=ws1/ws2/ws3/ws4/random,
@@ -747,17 +784,17 @@ size in 2-plane (4 color) VDI mode when screen height &gt;= 400 pixels.
 Because of these issues, using EmuTOS is recommended for VDI mode
 </p>
 <p class="parameter">--vdi-planes
-&lt;x&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">Use extended VDI resolution with bit
-depth &lt;x&gt; (x = 1, 2 or 4)</p>
+depth &lt;int&gt; (1/2/4/8)</p>
 <p class="parameter">--vdi-width
-&lt;w&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">Use extended VDI resolution with width
-&lt;w&gt; (320 &lt; w &lt;= 2048)</p>
+&lt;int&gt; (320-2048)</p>
 <p class="parameter">--vdi-height
-&lt;h&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">Use extended VDI resolution with height
-&lt;h&gt; (160 &lt; h &lt;= 1280)</p>
+&lt;int&gt; (160-1280)</p>
 <p>
 Because TOS and popular GEM programs have problems with certain screen
 sizes, Hatari enforces restrictions on VDI screen size.  In total VDI
@@ -790,18 +827,19 @@ automatically stop when emulation resolution changes.</p>
 <p class="paramdesc">Select AVI video codec (x = bmp/png).
 PNG compression can be <em>much</em> slower than using the uncompressed BMP
 format, but uncompressed video content takes huge amount of space.</p>
-<p class="parameter">--png-level &lt;x&gt;</p>
-<p class="paramdesc">Select PNG compression level for AVI video (x = 0-9).
+<p class="parameter">--png-level &lt;int&gt;</p>
+<p class="paramdesc">Select PNG compression level (0-9) for AVI video.
 Both compression efficiency and speed depend on the compressed
 screen content. Highest compression level (9) can be <em>really</em>
 slow with some content. Levels 3-6 should compress nearly as well
 with clearly smaller CPU overhead.</p>
-<p class="parameter">--avi-fps &lt;x&gt;</p>
-<p class="paramdesc">Force AVI frame rate (x = 50/60/71/...)</p>
+<p class="parameter">--avi-fps &lt;int&gt;</p>
+<p class="paramdesc">Force AVI frame rate (1-100, 50/60/71/...)</p>
 <p class="parameter">--avi-file &lt;file&gt;</p>
 <p class="paramdesc">Use &lt;file&gt; to record AVI</p>
 <p class="parameter">--screenshot-dir &lt;dir&gt;</p>
-<p class="paramdesc">Save screenshots in the directory &lt;dir&gt;</p>
+<p class="paramdesc">Directory for saving screenshots
+(default Hatari directory for them is OS specific).</p>
 <p class="parameter">--screenshot-format &lt;x&gt;</p>
 <p class="paramdesc">Select screenshot file format (x = bmp/png/neo/ximg).</p>
 
@@ -862,10 +900,10 @@ to &lt;file&gt;</p>
 &lt;bool&gt;</p>
 <p class="paramdesc">Enable/disable drive B (default is on)</p>
 <p class="parameter">--drive-a-heads
-&lt;x&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">Set number of heads for drive A (1=single sided, 2=double sided)</p>
 <p class="parameter">--drive-b-heads
-&lt;x&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">Set number of heads for drive B (1=single sided, 2=double sided)</p>
 <p class="parameter">--disk-a
 &lt;file&gt;</p>
@@ -892,8 +930,8 @@ with &lt;dir&gt; contents. If directory contains only single letter
 as a separate partition, otherwise the given directory itself will
 be assigned to drive "C:". In the multiple partition case, the
 letters used as the subdirectory names will determine to which
-drives/partitions they&rsquo;re assigned. If &lt;dir&gt; is
-an empty string, then harddrive's emulation is disabled</p>
+drives/partitions they are assigned to. If &lt;dir&gt; is an empty
+string (or "none"), then GEMDOS HD emulation is disabled</p>
 <p class="parameter">--protect-hd
 &lt;x&gt;</p>
 <p class="paramdesc">Write protect hard drive &lt;dir&gt;
@@ -934,6 +972,9 @@ bus ID 0</p>
 <p class="paramdesc">Emulate a SCSI hard drive with given bus ID (0-7)
 using image &lt;file&gt;. If just a filename is given, it is assigned to
 bus ID 0</p>
+<p class="parameter">--scsi-ver &lt;id&gt;=&lt;version&gt;</p>
+<p class="paramdesc">Emulate specified SCSI version (1-2) for given
+BUS ID (0-7). If just a version is given, it is applied to BUS ID 0</p>
 <p class="parameter">--ide-master
 &lt;file&gt;</p>
 <p class="paramdesc">Emulate an IDE 0 (master) hard drive with an
@@ -952,15 +993,15 @@ IDE 0</p>
 --memstate &lt;file&gt;</p>
 <p class="paramdesc">Load memory snap-shot &lt;file&gt;</p>
 <p class="parameter">-s, --memsize
-&lt;x&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">Set amount of emulated RAM, x = 1 to 14
 MiB, or 0 for 512 KiB. Other values are considered as a size in KiB.
 While Hatari allows 14 MiB for all machine types, on real HW, ST/STE can
 have up to 4 MiB, MegaSTE/TT up to 10MiB, and Falcon up to 14 MiB RAM.</p>
 <p class="parameter">--ttram
-&lt;x&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">Set amount of emulated TT RAM (for Falcon and TT
-mode), x = 0 to 1024 MiB (in 4MiB steps)</p>
+mode), 0-1024 MiB (in 4MiB steps)</p>
 
 <h3>ROM options</h3>
 <p class="parameter">-t,
@@ -983,7 +1024,7 @@ disabled)</p>
 <p class="paramdesc">Specify CPU (680x0) to use (use x &gt;=
 1 with EmuTOS or TOS &gt;= 2.06 only!)</p>
 <p class="parameter">--cpuclock
-&lt;x&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">Set the CPU clock (8, 16 or 32 MHz)</p>
 <p class="parameter">--compatible
 &lt;bool&gt;</p>
@@ -1010,11 +1051,11 @@ megaste, tt or falcon)</p>
 <p class="parameter">--blitter
 &lt;bool&gt;</p>
 <p class="paramdesc">Enable blitter emulation (ST only)</p>
-<p class="parameter">--rtc-year &lt;x&gt;</p>
+<p class="parameter">--rtc-year &lt;int&gt;</p>
 <p class="paramdesc">With the default value 0, RTC date and time are
 taken from the host. If application does not handle current dates,
-this can be used to change RTC year to a more compatible one.  See
-also "--gemdos-time" option.
+this can be used to change RTC year to a more compatible one (1980-2079).
+See also "--gemdos-time" option.
 </p>
 <p class="parameter">--dsp &lt;x&gt;</p>
 <p class="paramdesc">Falcon DSP emulation (x = none, dummy
@@ -1045,7 +1086,7 @@ matches evenly with the STE/TT/Falcon sound DMA (6258, 12517,
 250033, 50066 Hz) or your sound card frequencies (11025, 22050,
 44100 or 6000...48000 Hz). Check what your sound card supports.</p>
 <p class="parameter">--sound-buffer-size
-&lt;x&gt;</p>
+&lt;int&gt;</p>
 <p class="paramdesc">SDL&rsquo;s sound buffer size: 10-100,
 or 0 to use default buffer size. By default Hatari uses an SDL
 buffer size of 1024 samples, which gives approximately 20-30 ms
@@ -1085,6 +1126,12 @@ the debugger</p>
 <p class="paramdesc">Specify which exceptions invoke debugger, see
 "--debug-except help" for available (comma separated) exception
 flags.</p>
+<p class="parameter">--symload &lt;mode&gt;</p>
+<p class="paramdesc">Set the GEMDOS HD program symbols autoloading
+mode. "exec" loads symbols when program is executed, "debugger" when
+debugger is first invoked after program startup (default), and "off"
+disables autoloading (may be needed to debug memory-resident programs
+/ TOS).</p>
 <p class="parameter">--bios-intercept &lt;bool&gt;</p>
 <p class="paramdesc">
 Enable/disable XBios command parsing. Allows Atari programs to use all Hatari
@@ -1097,6 +1144,11 @@ screenshots. XBios(11) Dbmsg call can be used to invoke the debugger.
 redirection for given &lt;device&gt; to host terminal.  Device 2 is for
 the (CON:) VT52 console, which vector function catches also EmuTOS panic
 messages and MiNT console output, not just normal BIOS console output.</p>
+<p class="parameter">--memconv &lt;bool&gt;</p>
+<p class="paramdesc">Instead of showing non-ASCII (8-bit) Atari
+characters as dots in the memory output from the debugger commands
+(and for "--conout" option), enable their "locale" conversion to host
+characters.</p>
 <p class="parameter">--disasm &lt;x&gt;</p>
 <p class="paramdesc">Set disassembly options.  'uae' and 'ext' select
 the disassembly engine to use, bitmask sets disassembly output options
@@ -1151,13 +1203,17 @@ socket. Hatari outputs help for unrecognized commands and subcommands
 <p class="paramdesc">Show dialog for log messages above
 given level</p>
 <p class="parameter">--run-vbls
-&lt;x&gt;</p>
-<p class="paramdesc">Exit after X VBLs</p>
+&lt;int&gt;</p>
+<p class="paramdesc">Exit after given number of (1-) VBLs.
+Used with --benchmark mode</p>
 <p class="parameter">--benchmark</p>
 <p class="paramdesc">Start in benchmark mode (use with --run-vbls).
-This allows to measure the speed of the emulation in frames per second
-by running at maximum speed (don't wait for VBL). Disable audio/video
-output to have as little OS overhead as possible</p>
+Same as --fast-forward mode, except it cannot be disabled at run-time,
+and FPS will be printed on emulation exit (and pausing) regardless of
+log level. Allows better measuring of emulation speed, in frames per
+second.  Unless you're specifically measuring emulator audio and
+screen processing speed, disable them (--sound off/--disable-video on)
+to have as little OS overhead as possible</p>
 
 <p>Type <span class="commandline">hatari --help</span> to list all
 the command line options supported by a given version of Hatari.</p>
@@ -1180,7 +1236,7 @@ The GUI is rather self explanatory.</p>
 <h4 class="gui">The Main Menu</h4>
 
 <div class="floatimage">
-  <img src="images/main.png" width="500" height="304"
+  <img src="images/main.png" width="500" height="338"
        alt="Hatari's GUI - the main menu" />
 </div>
 
@@ -1785,7 +1841,7 @@ VDI mode is most useful with ST / STE emulation.
 <h4 class="gui">The Hatari Screen Dialog</h4>
 
 <div class="floatimage">
-  <img src="images/screen.png" width="520" height="400"
+  <img src="images/screen.png" width="519" height="288"
        alt="Hatari's GUI - the Hatari screen dialog" />
 </div>
 
@@ -1827,11 +1883,12 @@ especially on LCD monitors (they're slow).  If this isn't enabled,
 values from the "Max zoomed win" option are used in selecting
 a suitable resolution.
 <p>
-"Max zoomed win" option controls up to which size Hatari tries to scale
-the Atari resolutions and how much of the borders (enabled in Atari
-Monitor dialog) will be shown.  Note that there are several limitations
-in this and the "Keep desktop resolution" option, partly because Hatari
-has different implementations for different video modes:
+"Max zoomed win" option controls up to which size Hatari tries to
+scale the Atari resolutions and how much of the borders (enabled in
+Atari Monitor dialog) will be shown, within Hatari SDL framebuffer.
+Note that there are several limitations in this and the "Keep desktop
+resolution" option, partly because Hatari has different
+implementations for different video modes:
 </p>
 <ul>
 <li>VDI resolutions (selectable in Atari Monitor dialog) aren't scaled.</li>
@@ -1848,22 +1905,42 @@ has different implementations for different video modes:
 </ul>
 <p>
 You should set these values to a size that suits best your monitor
-resolution. It is intended to help in getting Hatari to best use your
-monitor space on a windowed mode and in fullscreen avoiding "fuzzy"
-scaling done by your LCD monitor.
+resolution (or video recording). It is intended to help in getting
+Hatari to best use your monitor space on a windowed mode and in
+fullscreen avoiding "fuzzy" scaling done either by SDL, or by your
+LCD monitor.
 </p>
 <p>
-Giving "-z 2" option on command line will reset max zoomed size to
-default values and "-z 1" will disable all zooming.
-Note that zooming takes additional CPU computing time and should
-not be enabled on very slow computers.
+Command line "--zoom" option can be used to tell SDL how much it
+should scale the resulting Hatari window framebuffer, when presenting
+it on screen.  Non-integer scaling values will cause "fuzzy" output.
 </p>
+
+<p>"SDL2" options impact following:</p>
+<ul>
+<li>GPU scaling: Hatari window scaling is HW accelerated</li>
+<li>Resizable: User can resize Hatari window</li>
+<li>Vsync: Hatari window updates are limited to host monitor refresh
+rate. This avoids tearing, but will impact emulation speed, if host
+monitor refresh rate does not match Atari monitor refresh (VBL) rate!</li>
+</ul>
+
+
+<h4 class="gui">The Recording Dialog</h4>
+
+<div class="floatimage">
+  <img src="images/recording.png" width="517" height="333"
+       alt="Hatari's GUI - the recording dialog" />
+</div>
+
 <p>Click the <span class="button">Screenshot</span> button to create
-a screenshot in the selected format to the current working directory.
-PNG and BMP formats will match the visual output of Hatari.
-NEO and XIMG formats will produce Atari ST native images, but will not include
-borders, or raster palette effects. NEO is limited to the 3 standard ST
-resolutions.
+a screenshot in the selected format. PNG and BMP formats will match
+the visual output of Hatari. NEO and XIMG formats will produce Atari
+ST native images, but will not include borders, or raster palette
+effects. NEO is limited to the 3 standard ST resolutions.
+</p>
+<p>Click the <span class="button">Directory:</span> button to change
+default screenshot saving directory.
 </p>
 <p>Click the <span class="button">Record&nbsp;AVI</span> button to
 record an AVI format video of Hatari screen (and audio) output.
@@ -1872,6 +1949,16 @@ record an AVI format video of Hatari screen (and audio) output.
 Selecting "Crop statusbar" option will leave statusbar out from
 the screenshots and recorded videos.
 </p>
+
+<p>
+To record a piece of sound, click <span class="button">File name:</span>
+button to choose a file. The file name extension that you use (.WAV or
+.YM) determines in which format the sound will be recorded in. The
+<span class="button">Record&nbsp;YM/WAV</span> button is a toggle so
+you will need to return to the GUI to switch sound recording off
+again (or to use the keyboard shortcut for that).
+</p>
+
 
 <h4 class="gui">The Keyboard Dialog</h4>
 
@@ -1891,11 +1978,11 @@ the screenshots and recorded videos.
  If it works on your system, this often gives better results than the symbolic
  mapping. Note that you also need a TOS version with the right language
  (e.g. use a French TOS if you are using a French keyboard).</p>
-<p>You can also load a custom keyboard mapping file here if you wish. Please
- note that the custom keyboard mapping will use the "symbolic"
- mapping for all keys that are not defined by your map file. Have a look
- at the supplied example mapfile (keymap-sample.txt) to see how to create
- your own keyboard mapping.</p>
+<p>You can also additionally load a custom keyboard mapping file here if you
+ wish. Click <span class="button">Browse</span> to select a mapping file.
+ Please have a look at the supplied example mapfile (keymap-sample.txt) to
+ see how to create your own keyboard mapping. If you want to disable the
+ mapping file again, press the <span class="button">Clear</span> button.</p>
 <p>
  The "Shortcuts" section can be used to configure the keyboard shortcuts
  that can be activated while the emulation is running. Hatari supports
@@ -1923,7 +2010,7 @@ the screenshots and recorded videos.
 <h4 class="gui">The Sound Dialog</h4>
 
 <div class="floatimage">
-  <img src="images/sound.png" width="400" height="400"
+  <img src="images/sound.png" width="400" height="272"
        alt="Hatari's GUI - the sound dialog" />
 </div>
 
@@ -1948,12 +2035,7 @@ voltage values measured on STF, "Math model" uses a complex model to mix the
 for accurate sound's emulation.
 </p>
 <p>
- You can select to record a piece of sound here.
- Use the <span class="button">Browse</span> button to choose a file.
- The file name extension that you use (.WAV or .YM) determines in which format
- the sound is recorded in. The <span class="button">Record&nbsp;sound</span> button
- is a toggle so you will need to return to the GUI to switch sound recording off
- again (or to use the keyboard shortcut for that).
+Audio can be recorded with the "Recording" dialog.
 </p>
 
 
@@ -2595,10 +2677,10 @@ disks" dialog (see "The Floppy Disks Dialog" section).
 <p>
 <em>Hatari supports low level track writes (and formatting) only for
 the STX format</em>. Hatari implements that by doing all track writes
-to a separate *.wd1172 overlay file. To test it, copy some .STX file
+to a separate *.wd1772 overlay file. To test it, copy some .STX file
 for example to "empty.stx". Format it from desktop, or use a separate
 formatting program like Fastcopy. This should create an additional
-"empty.wd1172" file.
+"empty.wd1772" file.
 </p>
 <p>
 (Note: IPF format itself is complete enough, but capslibrary doesn't
@@ -3242,13 +3324,12 @@ or <em>FITNESS FOR A PARTICULAR PURPOSE</em>. See the GNU General
 Public License for more details. </p>
 <p>
 You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software Foundation,
-Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
+along with this program; if not, see:
 </p>
 </div>
-<p><a href="http://www.gnu.org/">The GNU Project and the Free Software
-Foundation</a> | <a href="http://www.fsf.org/licenses/gpl.html">The
-GNU General Public License</a></p>
+<p>
+<a href="https://www.gnu.org/licenses/">https://www.gnu.org/licenses/</a>
+</p>
 
 <h3>Introduction to Emulation</h3>
 

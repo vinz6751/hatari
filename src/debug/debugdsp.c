@@ -188,7 +188,7 @@ int DebugDsp_DisAsm(int nArgc, char *psArgs[])
 
 /**
  * Do a DSP memory dump, args = starting address or range.
- * <x|y|p> <address>: dump from X, Y or P, starting from given address,
+ * `x|y|p` `address`: dump from X, Y or P, starting from given address,
  * e.g. "x 200" or "p 200-300"
  */
 int DebugDsp_MemDump(int nArgc, char *psArgs[])
@@ -404,8 +404,9 @@ static int DebugDsp_Next(int nArgc, char *psArgv[])
 	return DEBUGGER_CMDDONE;
 }
 
-/* helper to get instruction type, slightly simpler
- * version from one in profiledsp.c
+/**
+ * Helper: get instruction type
+ * (slightly simpler version from one in profiledsp.c)
  */
 uint32_t DebugDsp_OpcodeType(void)
 {
@@ -595,7 +596,7 @@ static const dbgcommand_t dspcommands[] =
 	  "\tdump DSP memory from given memory space and address, or\n"
 	  "\tcontinue from previous address if none specified.",
 	  false },
-	{ Symbols_Command, NULL,
+	{ Symbols_Command, Symbols_MatchDspCommand,
 	  "dspsymbols", "",
 	  "load DSP symbols & their addresses",
 	  Symbols_Description,

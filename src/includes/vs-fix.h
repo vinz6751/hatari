@@ -9,6 +9,8 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h> /* For getting SDK version */
+#include <direct.h>  /* For rmdir(), mkdir(), etc. */
+#include <malloc.h>  /* For alloca() */
 
 // Stop Visual Studio complaining
 #pragma warning (disable:4018)	/* signed / unsigned mismatch */
@@ -30,5 +32,8 @@ typedef unsigned short mode_t;
 
 #define	strncasecmp	_strnicmp
 #define	strcasecmp	_stricmp
+#define strtok_r	strtok_s
+
+#define _USE_MATH_DEFINES	/* Required for M_PI from math.h */
 
 #endif

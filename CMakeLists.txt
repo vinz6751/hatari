@@ -55,6 +55,8 @@ set(ENABLE_DSP_EMU 1
     CACHE BOOL "Enable DSP 56k emulator for Falcon mode")
 set(ENABLE_TRACING 1
     CACHE BOOL "Enable tracing messages for debugging")
+set(ENABLE_SDL3 0
+    CACHE BOOL "Use SDL3 instead of SDL2")
 
 # Run-time checks with GCC / LLVM (Clang) AddressSanitizer:
 # - stack protection
@@ -78,6 +80,12 @@ if(ASAN_AVAILABLE)
 	    CACHE BOOL "Enable GCC/LLVM run-time stack/pointer debugging (~2x slowdown)")
 endif(ASAN_AVAILABLE)
 
+CHECK_C_COMPILER_FLAG("-fsanitize=undefined" UBSAN_AVAILABLE)
+if(UBSAN_AVAILABLE)
+	set(ENABLE_UBSAN 0
+	    CACHE BOOL "Enable GCC/LLVM run-time undefined behavior debugging")
+endif(UBSAN_AVAILABLE)
+
 find_program(GZIP gzip)
 if(UNIX AND GZIP)
 	set(ENABLE_MAN_PAGES 1 CACHE BOOL "Built and install man pages")
@@ -88,10 +96,7 @@ endif()
 if(APPLE)
 	set(ENABLE_OSX_BUNDLE 1
 	    CACHE BOOL "Built Hatari as macOS application bundle")
-	set(ADDITIONAL_INCLUDES ${FRAMEWORKS})
-	set_source_files_properties(${FRAMEWORKS} PROPERTIES MACOSX_PACKAGE_LOCATION Frameworks)
 	set(CMAKE_XCODE_ATTRIBUTE_LD_RUNPATH_SEARCH_PATHS "@loader_path/../Frameworks")
-	# set(CMAKE_XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--deep")
 else()
 	set(ENABLE_OSX_BUNDLE 0
 	    CACHE BOOL "Built Hatari as macOS application bundle")
@@ -107,10 +112,20 @@ endif(ENABLE_OSX_BUNDLE)
 # Check for libraries:
 # ####################
 
-find_package(SDL2)
-if(NOT SDL2_FOUND)
-	message(FATAL_ERROR "SDL2 library not found!")
-endif(NOT SDL2_FOUND)
+if(ENABLE_SDL3)
+	find_package(SDL3)
+	if(NOT SDL3_FOUND)
+		message(FATAL_ERROR "SDL3 library not found!")
+	endif(NOT SDL3_FOUND)
+	# Yes, we're cheating by re-using the SDL2_* variables:
+	set(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIRS})
+	set(SDL2_LIBRARIES ${SDL3_LIBRARIES})
+else()
+	find_package(SDL2)
+	if(NOT SDL2_FOUND)
+		message(FATAL_ERROR "SDL2 library not found!")
+	endif(NOT SDL2_FOUND)
+endif()
 
 find_package(Math)
 
@@ -171,6 +186,10 @@ check_large_file()
 # CPP Definitions:
 # ################
 
+# We still want to have assert() in RelWithDebInfo builds:
+string(REPLACE " -DNDEBUG" ""
+       CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
+
 # Test for large file support:
 execute_process(COMMAND getconf LFS_CFLAGS
                 OUTPUT_VARIABLE DETECTED_LFS_CFLAGS
@@ -181,11 +200,13 @@ if(DETECTED_LFS_CFLAGS)
 endif(DETECTED_LFS_CFLAGS)
 
 # Additional CFLAGS suggested by the SDL library:
-if(PKG_CONFIG_FOUND)
+if(NOT ENABLE_SDL3)
+    if(PKG_CONFIG_FOUND)
 	execute_process(COMMAND ${PKG_CONFIG_EXECUTABLE} --cflags-only-other sdl2
 			OUTPUT_VARIABLE SDL2_OTHER_CFLAGS
 			ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
-endif(PKG_CONFIG_FOUND)
+    endif(PKG_CONFIG_FOUND)
+endif()
 
 if(ENABLE_OSX_BUNDLE)
 	# Use OSX native alert windows
@@ -246,6 +267,12 @@ if(ENABLE_ASAN)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-common")
 endif(ENABLE_ASAN)
 
+# GCC/Clang undefined behavior debugging
+if(ENABLE_UBSAN)
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined")
+	add_definitions(-DENABLE_UBSAN=1)
+endif(ENABLE_UBSAN)
+
 # GCC/Clang specific flags:
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
 	# We want to allow ‘for’-loop initial declarations a la for(int i=0; ...)
@@ -256,6 +283,11 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wwrite-strings -Wsign-compare")
 	#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wextra -Wno-unused-parameter -Wno-empty-body")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wformat-security")
+endif()
+
+if(APPLE AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+	# Silence linker warning with AppleClang 17
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-common")
 endif()
 
 CHECK_C_COMPILER_FLAG("-Wimplicit-fallthrough=2" WARN_FALLTRHOUGH_AVAILABLE)
@@ -403,7 +435,11 @@ Libraries summary :
 -------------------
 ")
 
-message("  - sdl :\tusing SDL2 ${SDL2_VERSION}")
+if(ENABLE_SDL3)
+	message("  - sdl :\tusing SDL3 ${SDL3_VERSION}")
+else()
+	message("  - sdl :\tusing SDL2 ${SDL2_VERSION}")
+endif()
 
 if(Readline_FOUND)
   message( "  - readline :\tfound, enables history/completion in the debugger" )

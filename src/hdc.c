@@ -9,14 +9,16 @@
 const char HDC_fileid[] = "Hatari hdc.c";
 
 #include <errno.h>
-#include <SDL_endian.h>
 
 #include "main.h"
 #include "configuration.h"
 #include "debugui.h"
+#include "endianswap.h"
 #include "file.h"
 #include "fdc.h"
 #include "hdc.h"
+#include "cycles.h"
+#include "cycInt.h"
 #include "ioMem.h"
 #include "log.h"
 #include "m68000.h"
@@ -73,6 +75,11 @@ static unsigned char inquiry_bytes[] =
 	'H','a','r','d','d','i','s','k',    /* Product ID 2 */
 	'0','1','8','0',                    /* Revision */
 };
+
+
+/* Delay before setting IRQ after a tansfer is made with Acsi_DmaTransfer() */
+#define	ACSI_TRANSFER_MIN_CYCLES	1000			/* in CPU cycles */
+
 
 
 /*---------------------------------------------------------------------*/
@@ -230,6 +237,7 @@ static void HDC_Cmd_Inquiry(SCSI_CTRLR *ctr)
 	 * Peripheral Device Type according to the SCSI standard */
 	buf[0] = HDC_GetLUN(ctr) == 0 ? 0 : 0x7F;
 
+	buf[2] = dev->scsi_version;
 	buf[4] = count - 5;
 
 	ctr->status = HD_STATUS_OK;
@@ -252,13 +260,13 @@ static void HDC_Cmd_RequestSense(SCSI_CTRLR *ctr)
 
 	LOG_TRACE(TRACE_SCSI_CMD, "HDC: REQUEST SENSE (%s).\n", HDC_CmdInfoStr(ctr));
 
-	if ((nRetLen < 4 && nRetLen != 0) || nRetLen > 22)
+	if ((nRetLen < 4 && nRetLen != 0) || nRetLen > 252)
 	{
 		Log_Printf(LOG_WARN, "HDC: *** Strange REQUEST SENSE ***!\n");
 	}
 
 	/* Limit to sane length */
-	if (nRetLen <= 0)
+	if (nRetLen == 0 && dev->scsi_version == 1)
 	{
 		nRetLen = 4;
 	}
@@ -402,6 +410,13 @@ static void HDC_Cmd_ModeSense(SCSI_CTRLR *ctr)
 
 	dev->bSetLastBlockAddr = false;
 
+	// Subpages are not supported
+	if(ctr->command[3]) {
+		ctr->status = HD_STATUS_ERROR;
+		dev->nLastError = HD_REQSENS_INVARG;
+		return;
+	}
+
 	switch(ctr->command[2])
 	{
 	 case 0x00:
@@ -422,7 +437,7 @@ static void HDC_Cmd_ModeSense(SCSI_CTRLR *ctr)
 		buf = HDC_PrepRespBuf(ctr, 44);
 		HDC_CmdModeSense0x04(dev, ctr, buf + 4);
 		HDC_CmdModeSense0x00(dev, ctr, buf + 28);
-		buf[0] = 44;
+		buf[0] = 43;
 		buf[1] = 0;
 		buf[2] = 0;
 		buf[3] = 0;
@@ -780,8 +795,8 @@ int HDC_PartitionCount(FILE *fp, const uint64_t tracelevel, int *pIsByteSwapped)
 		{
 			boot = pinfo[0];
 			ptype = pinfo[4];
-			start = SDL_SwapLE32(*(uint32_t*)(pinfo+8));
-			sectors = SDL_SwapLE32(*(uint32_t*)(pinfo+12));
+			start = le_swap32(*(uint32_t*)(pinfo+8));
+			sectors = le_swap32(*(uint32_t*)(pinfo+12));
 			total += sectors;
 			LOG_TRACE_DIRECT_LEVEL(tracelevel,
 				"- Partition %d: type=0x%02x, start=0x%08x, size=%.1f MB %s%s\n",
@@ -886,8 +901,9 @@ off_t HDC_CheckAndGetSize(const char *hdtype, const char *filename, unsigned lon
 /**
  * Open a disk image file
  */
-int HDC_InitDevice(const char *hdtype, SCSI_DEV *dev, char *filename, unsigned long blockSize)
+int HDC_InitDevice(const char *hdtype, SCSI_DEV *dev, CNF_SCSIDEV *conf)
 {
+	const char *filename = conf->sDeviceFile;
 	off_t filesize;
 	FILE *fp;
 
@@ -895,7 +911,7 @@ int HDC_InitDevice(const char *hdtype, SCSI_DEV *dev, char *filename, unsigned l
 	Log_Printf(LOG_INFO, "Mounting %s HD image '%s'\n", hdtype, filename);
 
 	/* Check size for sanity */
-	filesize = HDC_CheckAndGetSize(hdtype, filename, blockSize);
+	filesize = HDC_CheckAndGetSize(hdtype, filename, conf->nBlockSize);
 	if (filesize < 0)
 		return filesize;
 
@@ -918,12 +934,28 @@ int HDC_InitDevice(const char *hdtype, SCSI_DEV *dev, char *filename, unsigned l
 		return -ENOLCK;
 	}
 
-	dev->blockSize = blockSize;
+	dev->scsi_version = conf->nScsiVersion;
+	dev->blockSize = conf->nBlockSize;
 	dev->hdSize = filesize / dev->blockSize;
 	dev->image_file = fp;
 	dev->enabled = true;
 
 	return 0;
+}
+
+/*---------------------------------------------------------------------*/
+/**
+ * HDC_UnInitDevice - close image file
+ */
+void HDC_UnInitDevice(SCSI_DEV *dev)
+{
+	if (dev->enabled)
+	{
+		File_UnLock(dev->image_file);
+		fclose(dev->image_file);
+		dev->image_file = NULL;
+		dev->enabled = false;
+	}
 }
 
 /**
@@ -949,7 +981,7 @@ bool HDC_Init(void)
 	{
 		if (!ConfigureParams.Acsi[i].bUseDevice)
 			continue;
-		if (HDC_InitDevice("ACSI", &AcsiBus.devs[i], ConfigureParams.Acsi[i].sDeviceFile, ConfigureParams.Acsi[i].nBlockSize) == 0)
+		if (HDC_InitDevice("ACSI", &AcsiBus.devs[i], &ConfigureParams.Acsi[i]) == 0)
 		{
 			nAcsiPartitions += HDC_PartitionCount(AcsiBus.devs[i].image_file, TRACE_SCSI_CMD, NULL);
 			bAcsiEmuOn = true;
@@ -974,12 +1006,7 @@ void HDC_UnInit(void)
 
 	for (i = 0; bAcsiEmuOn && i < MAX_ACSI_DEVS; i++)
 	{
-		if (!AcsiBus.devs[i].enabled)
-			continue;
-		File_UnLock(AcsiBus.devs[i].image_file);
-		fclose(AcsiBus.devs[i].image_file);
-		AcsiBus.devs[i].image_file = NULL;
-		AcsiBus.devs[i].enabled = false;
+		HDC_UnInitDevice(&AcsiBus.devs[i]);
 	}
 	free(AcsiBus.buffer);
 	AcsiBus.buffer = NULL;
@@ -1128,7 +1155,13 @@ static void Acsi_DmaTransfer(void)
 	AcsiBus.data_len = 0;
 
 	FDC_SetDMAStatus(AcsiBus.bDmaError);	/* Mark DMA error */
-	FDC_SetIRQ(FDC_IRQ_SOURCE_HDC);
+
+	/* Although data transfer is made instantly above, some programsexpect the transfer to take */
+	/* a minimum delay before setting Hdc's IRQ (eg "Idris OS" in ACSI mode) */
+	/* For now we simulate this with a timer and a fixed delay, but this should be measured */
+	/* on real HW (depending on the read/write operation and the size of the transfer) */
+	FDC_ClearHdcIRQ();
+	CycInt_AddRelativeInterrupt(ACSI_TRANSFER_MIN_CYCLES, INT_CPU_CYCLE, INTERRUPT_HDC_ACSI);
 
 	/* For the MegaSTE, using the HDC DMA will flush the external cache */
 	if ( ConfigureParams.System.nMachineType == MACHINE_MEGA_STE )
@@ -1214,4 +1247,12 @@ void HDC_DmaTransfer(void)
 		Ncr5380_DmaTransfer_Falcon();
 	else if (bAcsiEmuOn)
 		Acsi_DmaTransfer();
+}
+
+
+
+void HDC_ACSI_InterruptHandler_Update ( void )
+{
+	CycInt_AcknowledgeInterrupt();
+	FDC_SetIRQ(FDC_IRQ_SOURCE_HDC);
 }

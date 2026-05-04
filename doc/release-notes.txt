@@ -20,11 +20,137 @@ Following features are deprecated and will be removed in a future release:
  Development version
  -------------------
 
+API changes:
+- "--avirecord" option requires now bool argument to enable AVI
+  recording. This is to support skipping recording of the TOS boot
+  (using option "event" prefix to enable it later)
+- Configuration file "Debugger" section "bSymbolsAutoLoad" (boolean)
+  option changed to a "nSymbolsAutoLoad" (integer) one.  Default is
+  the same (program symbols loaded on debugger invocation)
+
+
+Emulation improvements:
+
+Emulator improvements:
+- CLI options:
+  - Fix: delayed --log-level / --trace options effect on Hatari init
+  - Both "" and "none" can be used to disable devices that are enabled
+    by providing a <file> or <dir name> (revert v2.6.1 API change)
+  - "event" prefixes support for a subset of options (listed in manual).
+    They delay applying specified option until given emulation event.
+    E.g. to fast-forward until program starts (from GEMDOS HD),
+    use: "--fast-forward boot:on --fast-forward prg:off"
+  - New "--symload" option for specifying when program symbols are loaded
+  - New "--vsync" option to enable screen update vsyncing
+  - Hatari exits with return value 1 on option errors
+  - Stricter validation of integer option values
+- SDL GUI:
+  - Fix: allow exit from text edit mode when using just joystick
+  - Fix: do not show recording in progress, if starting it failed
+  - Audio + video recording functionality moved to its own dialog
+  - Number field values can now also be typed in
+- GEMDOS HD:
+  - Fix: "Show parent" items missing from TeraDesk folder windows
+  - Fix: Curly braces are valid GEMDOS file name characters
+  - Fix: Incorrect file match when (valid) file name contains '+'
+  - When Atari file name matches multiple host files, prefer
+    (potentially) truncated file name matches over ones where
+    invalid chars have (potentially) been replaced with '+'
+  - Increase max DTA cache size + warn on larger increases
+- Recording:
+  - Also sound recording shows recording time in Hatari titlebar
+- VDI mode:
+  - Support 8-bit VDI mode (up to 800x600@256) on TT & Falcon
+- Virtual INF file (used with autostart/TOS-resolution options):
+  - Fix: resolution setting for EmuTOS with saved Falcon EMUDESK.INF
+  - Fix: Boot drive window specified in the virtual INF file when
+    GEMDOS HD has no existing INF file, works now also with EmuTOS
+  - Support (--tos-res) resolution setting also for Falcon machines,
+    and new tclow/tcmed/tchigh values for Falcon TC modes
+- NatFeats:
+  - New NF_CYCLES call to retrieve (unsigned) 32-bit cycle counter
+- Tracing:
+  - "event" option for tracing option changes on events
+- Debugger:
+  - Fix: dysfunctional WinUAE CPU core disasm wrapper
+  - Fix: separate arguments output by "echo" command with a space
+  - Add ':print' option for annotating conditional breakpoints
+  - Open Windows console automatically for debugger
+  - Debugger input file commands can be split to multiple lines
+    by adding '\' to end of line to continue it
+  - Increase max lenght of accepted debugger file commands to 4k
+  - Always ignore unnamed symbols (= note instead of warnings)
+  - Add "--memconv" option to enable locale conversion for non-ASCII
+    Atari chars in memory output from the debugger commands, and
+    for "--conout" output
+Mac:
+- AVI recordings & screenshots default to same dir like on other OSes
+
+Testing additions:
+- Test for verifying parsing of all Hatari options
+- Test for verifying profiling & breakpoint chaining functionality,
+  and output from the "uae" + "ext" disassembly engines
+
+Documentation:
+- (Very) obsolete French manual page removed
+
+
+ Version 2.6.1 (2025-08-15)
+ --------------------------
+
+Unintended API change:
+- GEMDOS HD emulation is disabled from CLI by providing "none" as
+  <dir> instead of an empty string, same as with device <file> options
+
+Emulation improvements:
+- MegaSTE:
+  - When using cache, only compare 24 lowest bits of address
+  - Don't update cache after a bus/address error
+- Falcon:
+  - Create a fast ram buffer (_FRB) cookie when running with TT RAM
+    to fix a problem with floppy disk access
+- Video:
+  - Add support for STE 224 bytes overscan in medium resolution
+  - Set correct resolution in Shifter when accessing $FF8260 as word
+    (fix regression in Hatari 2.6.0)
+- VME for MegaSTE / TT:
+  - VME memory regions should return bus error when no VME board is present
+
+Emulator improvements:
+- Windows:
+  - Fix: late locale init messes debugger readline history handling
+- GEMDOS HD:
+  - Fix: caches were not always flushed on writing to emulated memory
+- Debugger:
+  - Fix: show DEL character as non-printable in memdumps
+- CPU/FPU settings:
+  - Disallow 68881/68882 FPU in 040/060 mode
+- Config / SDL GUI:
+  - Default screenshot save directory override option
+  - SDL GUI asks for file name when starting AVI recording
+  - Fit Hatari screen dialog to smallest required size and
+    log errors on invalid dialog sizes
+- CLI options:
+  - GEMDOS HD & screenshot dir options accept only existing directories
+
+Fixed demos:
+ - A Letter To Sommarhack by Effect (write word at $FF8260)
+ - Partial fix for Double Rez Trouble by DHS (med res overscan lines)
+
+Fixed programs:
+- Spectre 3.0 (Hatari v2.6 regression, MegaSTE cache)
+
+
+ Version 2.6.0 (2025-06-22)
+ --------------------------
+
 Option changes:
 - "--trace" option "vme" item renamed to "scu"
 - "--vme none/dummy" option removed as (now) redundant
 
 Emulation improvements:
+- 030+MMU:
+  - Workaround to correct prefetch data after bus errors
 - DSP:
   - Fix: JMP can also form a long interrupt instruction
 - VME/SCU:
@@ -35,14 +161,31 @@ Emulation improvements:
   - Add support for CPU Freq / Cache control at $FF8E21 when running
     in cycle accurate mode. This gives cycle exact memory accesses
     when running at 16 MHz, as well as emulation of the external 16 KB cache
+- SCSI:
+  - Fix REQUEST SENSE for SCSI v2
 - Serial Ports:
   - Update values of DCD and CTS signals for the RS232 port connected
     to the MFP (as reported by the underlying OS)
+  - Add support for using TCCLK as RTxCB clock for the Atari TT's SCC
+- Video:
+  - Improve support for 4 pixel hardscroll by stopping shifter with
+    $FF8260=3. Also handle $FF8261.
+- MFP:
+  - Fix counter when timer is stopped/restarted while counting from 1 to 0
 
 Emulator improvements:
 - SDL-GUI (and config options):
   - Improvements to GUI font characters
   - Add separate option for enabling/disabling >=030 CPU data cache
+  - Fix: file selector exit with keyboard
+- Windows:
+  - Open console window for error and help output, so that Windows
+    users can actually see them
+- Keyboard / TOS localization:
+  - Symbolic key mapping improved for different TOS language versions
+  - Made it possible to use a mapping file with fallback to scancode mapping
+  - New "--fast-forward-key-repeat" option for key repeat
+  - (EmuTOS v1.4) Catalan country code support
 - Memory snapshots:
   - Fix: re/store all relevant YM2149 & MMU state variables
 - Joysticks:
@@ -51,10 +194,15 @@ Emulator improvements:
   - Fix: Fattrib() call on a directory
   - Fix: Return correct attrib for volume labels in FsFirst()
   - Fix: Fsnext() calls with DTAs having different attribs,
-    when DTA is not from preceeding Fsfirst() but earlier one
+    when DTA is not from preceding Fsfirst() but earlier one
   - Fix: Handle additional '*' chars at end of file mask
+  - Fix: Dfree() total/free on really large disk, free on Mac/BSD
 - SCC:
   - Fix: invalid channel B file close on uninit
+- SCSI:
+  - Add CLI + config file option for (per ID) SCSI version
+- Command FIFO:
+  - Fix crash when FIFO gets command right at Hatari start
 - Debugger:
   - Fix: DSP RESET instruction tracing
   - Similarly to Atari program symbols override, load TOS symbols on
@@ -63,11 +211,15 @@ Emulator improvements:
   - Add "struct" command to better show contents of program's structures
   - Variable & debug symbol names can be given directly also to load,
     save, memwrite and register commands in addition to numeric values
+  - File name completion for commands having optional file name args
+  - Symbol name completion for "loadbin", "savebin" & "dspsymbols" commands
   - Align "memdump" character representation also when line is not full
   - Show also non-ASCII Atari chars in debugger memory content output
   - Add 'c' (character) argument type support for "memwrite" command
   - CPU disassembly shows resulting relative branch addresses
   - "dspreg" command shows also stack contents
+  - When disassembling, translate logical addresses to physical ones if MMU
+    is enabled
 - Tracing:
   - GEMDOS Dsetpath() + Frename() calls included to "os_base" traces
   - PC value added to more traces
@@ -79,6 +231,15 @@ Build changes:
   is stable now, uses less memory and even still seems to be at least as
   fast as the other mode, so it is the one and only default mode now)
 
+Tools:
+- gst2ascii:
+  - Fix: ignore configured types also with MINT+ELF symbols
+  - Fix: weak ELF BSS/DATA symbols were handled as weak TEXT symbols
+- Profile data post-processor:
+  - Fix: first costs assigned wrong when profile does not start on symbol
+- tos-tester:
+  - Improved support for testing Hatari bool options
+
 Fixed demos:
 - Little -ME- Demo by Overlanders : when running in MegaSTE mode the 3D parts
   will switch to 16 MHz and use the MegaSTE's 16 KB external cache
@@ -87,9 +248,11 @@ Fixed programs:
 - Voxx, both demo & free full version (DSP JMP instruction)
 - Ultimate Virus Killer (GEMDOS HD, "***.***" file mask)
 - JAM (stuttering sound with monochrome monitor in Falcon mode)
+- Linux, user-space program crashes (prefetch with 030 MMU)
 
 Fixed games:
 - Ready Steady Bang! (GEMDOS HD Fattrib())
+- STDOOM (MegaSTE 16Mhz cache tag bug)
 
 
  Version 2.5.0 (2024-04-18)

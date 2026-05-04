@@ -16,8 +16,8 @@
 
 
 
-#define UAEMAJOR 5
-#define UAEMINOR 1
+#define UAEMAJOR 6
+#define UAEMINOR 0
 #define UAESUBREV 0
 
 #define MAX_AMIGADISPLAYS 4
@@ -420,6 +420,7 @@ struct rtgboardconfig
 	uae_u32 rtgmem_size;
 	int device_order;
 	int monitor_id;
+	bool autoswitch;
 };
 struct boardloadfile
 {
@@ -492,6 +493,7 @@ struct uae_prefs {
 	TCHAR config_all_path[MAX_DPATH];
 	TCHAR config_path[MAX_DPATH];
 	TCHAR config_window_title[256];
+	int got_fs2_hdf2;
 
 	bool illegal_mem;
 	bool debug_mem;
@@ -596,6 +598,8 @@ struct uae_prefs {
 	int gfx_overscanmode;
 	int gfx_monitorblankdelay;
 	int gfx_rotation;
+	int gfx_ntscpixels;
+	uae_u32 gfx_bordercolor;
 
 	struct gfx_filterdata gf[3];
 
@@ -751,6 +755,7 @@ struct uae_prefs {
 	struct cdslot cdslots[MAX_TOTAL_SCSI_DEVICES];
 	TCHAR quitstatefile[MAX_DPATH];
 	TCHAR statefile[MAX_DPATH];
+	TCHAR statefile_path[MAX_DPATH];
 	TCHAR inprecfile[MAX_DPATH];
 	TCHAR trainerfile[MAX_DPATH];
 	bool inprec_autoplay;

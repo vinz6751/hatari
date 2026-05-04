@@ -15,20 +15,17 @@
 #define	AVI_RECORD_AUDIO_CODEC_PCM	1
 
 
-extern bool	bRecordingAvi;
-extern int	AviRecordDefaultVcodec;
-extern bool	AviRecordDefaultCrop;
-extern int	AviRecordDefaultFps;
 extern char	AviRecordFile[FILENAME_MAX];
 
 extern bool	Avi_RecordVideoStream ( void );
 extern bool	Avi_RecordAudioStream ( int16_t pSamples[][2] , int SampleIndex , int SampleLength );
 
 extern bool	Avi_AreWeRecording ( void );
-extern bool	Avi_SetCompressionLevel(const char *str);
-extern bool	Avi_StartRecording ( char *FileName , bool CropGui , uint32_t Fps , uint32_t Fps_scale , int VideoCodec );
+extern bool	Avi_SetCompressionLevel(int level);
+extern bool	Avi_StartRecording_WithConfig ( void );
+extern void	Avi_ToggleRecording ( void );
 extern bool	Avi_StopRecording ( void );
-extern void	Avi_SetSurface(SDL_Surface *surf);
-
+extern bool	Avi_StopRecording_WithMsg ( void );
+extern void Avi_SetSurface(uint32_t *pixels, int w, int h, int pitch);
 
 #endif /* ifndef HATARI_AVI_RECORD_H */

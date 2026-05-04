@@ -7,7 +7,6 @@
   This is where we intercept read/writes to/from the IDE controller hardware.
 */
 
-#include <SDL_endian.h>
 #include <errno.h>
 
 #include <sys/types.h>
@@ -24,6 +23,8 @@
 #include "mfp.h"
 #include "stMemory.h"
 #include "sysdeps.h"
+
+uaecptr ide_addr = 0xf00000;
 
 int nIDEPartitions = 0;
 
@@ -111,6 +112,11 @@ bool Ide_IsAvailable(void)
 	       (Config_IsMachineFalcon() && !ConfigureParams.System.bFastBoot);
 }
 
+bool Ide_IsValid(uaecptr address)
+{
+	return Ide_IsAvailable() && address >= ide_addr && address < ide_addr + 0x40;
+}
+
 /**
  * Convert Falcon IDE registers to "normal" IDE register numbers.
  * (taken from Aranym - cheers!)
@@ -156,7 +162,7 @@ uae_u32 REGPARAM3 Ide_Mem_bget(uaecptr addr)
 
 	addr &= 0x00ffffff;                           /* Use a 24 bit address */
 
-	if (addr >= 0xf00040 || !Ide_IsAvailable())
+	if (!Ide_IsValid(addr))
 	{
 		/* invalid memory addressing --> bus error */
 		M68000_BusError(addr_in, BUS_ERROR_READ, BUS_ERROR_SIZE_BYTE, BUS_ERROR_ACCESS_DATA, 0);
@@ -193,7 +199,7 @@ uae_u32 REGPARAM3 Ide_Mem_wget(uaecptr addr)
 
 	addr &= 0x00ffffff;                           /* Use a 24 bit address */
 
-	if (addr >= 0xf00040 || !Ide_IsAvailable())
+	if (!Ide_IsValid(addr))
 	{
 		/* invalid memory addressing --> bus error */
 		M68000_BusError(addr_in, BUS_ERROR_READ, BUS_ERROR_SIZE_WORD, BUS_ERROR_ACCESS_DATA, 0);
@@ -224,7 +230,7 @@ uae_u32 REGPARAM3 Ide_Mem_lget(uaecptr addr)
 
 	addr &= 0x00ffffff;                           /* Use a 24 bit address */
 
-	if (addr >= 0xf00040 || !Ide_IsAvailable())
+	if (!Ide_IsValid(addr))
 	{
 		/* invalid memory addressing --> bus error */
 		M68000_BusError(addr_in, BUS_ERROR_READ, BUS_ERROR_SIZE_LONG, BUS_ERROR_ACCESS_DATA, 0);
@@ -263,7 +269,7 @@ void REGPARAM3 Ide_Mem_bput(uaecptr addr, uae_u32 val)
 
 	LOG_TRACE(TRACE_IDE, "IDE: bput($%x, $%x)\n", addr, val);
 
-	if (addr >= 0xf00040 || !Ide_IsAvailable())
+	if (!Ide_IsValid(addr))
 	{
 		/* invalid memory addressing --> bus error */
 		M68000_BusError(addr_in, BUS_ERROR_WRITE, BUS_ERROR_SIZE_BYTE, BUS_ERROR_ACCESS_DATA, val);
@@ -295,7 +301,7 @@ void REGPARAM3 Ide_Mem_wput(uaecptr addr, uae_u32 val)
 
 	LOG_TRACE(TRACE_IDE, "IDE: wput($%x, $%x)\n", addr, val);
 
-	if (addr >= 0xf00040 || !Ide_IsAvailable())
+	if (!Ide_IsValid(addr))
 	{
 		/* invalid memory addressing --> bus error */
 		M68000_BusError(addr_in, BUS_ERROR_WRITE, BUS_ERROR_SIZE_WORD, BUS_ERROR_ACCESS_DATA, val);
@@ -320,7 +326,7 @@ void REGPARAM3 Ide_Mem_lput(uaecptr addr, uae_u32 val)
 
 	LOG_TRACE(TRACE_IDE, "IDE: lput($%x, $%x)\n", addr, val);
 
-	if (addr >= 0xf00040 || !Ide_IsAvailable())
+	if (!Ide_IsValid(addr))
 	{
 		/* invalid memory addressing --> bus error */
 		M68000_BusError(addr_in, BUS_ERROR_WRITE, BUS_ERROR_SIZE_LONG, BUS_ERROR_ACCESS_DATA, val);
@@ -421,10 +427,10 @@ static inline void cpu_to_be16wu(uint16_t *p, uint16_t v)
 }
 
 
-#define le32_to_cpu SDL_SwapLE32
-#define le16_to_cpu SDL_SwapLE16
-#define cpu_to_le32 SDL_SwapLE32
-#define cpu_to_le16 SDL_SwapLE16
+#define le32_to_cpu le_swap32
+#define le16_to_cpu le_swap16
+#define cpu_to_le32 le_swap32
+#define cpu_to_le16 le_swap16
 
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -538,7 +544,7 @@ static int bdrv_read(BlockDriverState *bs, int64_t sector_num,
 	{
 		uint16_t *buf16 = (uint16_t *)buf;
 		while (len > 0) {
-			*buf16 = SDL_Swap16(*buf16);
+			*buf16 = bswap_16(*buf16);
 			buf16++;
 			len -= 2;
 		}
@@ -584,7 +590,7 @@ static int bdrv_write(BlockDriverState *bs, int64_t sector_num,
 			return -ENOMEM;
 		for (idx = 0; idx < len; idx += 2)
 		{
-			buf16[idx / 2] = SDL_Swap16(*(const uint16_t *)&buf[idx]);
+			buf16[idx / 2] = bswap_16(*(const uint16_t *)&buf[idx]);
 		}
 		ret = fwrite(buf16, 1, len, bs->fhndl);
 		free(buf16);
@@ -969,7 +975,7 @@ static void padstr8(uint8_t *buf, int buf_size, const char *src)
 
 static void put_le16(uint16_t *p, unsigned int v)
 {
-	*p = SDL_SwapLE16(v);
+	*p = le_swap16(v);
 }
 
 static void ide_identify(IDEState *s)

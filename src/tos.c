@@ -38,6 +38,7 @@ const char TOS_fileid[] = "Hatari tos.c";
 #include "falcon/dsp.h"
 #include "clocks_timings.h"
 #include "video.h"
+#include "keymap.h"
 
 #include "faketosData.c"
 
@@ -184,15 +185,45 @@ static const uint8_t p060movep3_2[] = {		/* replace MOVEP $28(a2),d7 */
 static const uint8_t pFalconExtraRAM_1[] = {
 	0x4e, 0xb9, 0x00, 0xe7, 0xf1, 0x00	/* jsr       $e7f100 */
 };
-static const uint8_t pFalconExtraRAM_2[] = {	/* call maddalt() to declare the extra RAM */
+static const uint8_t pFalconExtraRAM_2[] = {
+	/* If we use fast RAM in Falcon mode, Hatari patched $05a4 already, so
+	 * we can use this value to check whether we have to do work here: */
 	0x20, 0x38, 0x05, 0xa4,			/* move.l    $05a4.w,d0 */
-	0x67, 0x18,				/* beq.s     $ba2d2 */
+	0x67, 0x58,				/* beq.s     extra_ram_end */
+	/* call maddalt() to declare the extra RAM */
 	0x04, 0x80, 0x01, 0x00, 0x00, 0x00,	/* subi.l    #$1000000,d0 */
 	0x2f, 0x00,				/* move.l    d0,-(sp) */
 	0x2f, 0x3c, 0x01, 0x00, 0x00, 0x00,	/* move.l    #$1000000,-(sp) */
 	0x3f, 0x3c, 0x00, 0x14,			/* move.w    #$14,-(sp) */
 	0x4e, 0x41,				/* trap      #1 */
 	0x4f, 0xef, 0x00, 0x0a,			/* lea       $a(sp),sp */
+	/* call Mxalloc() to get a buffer in ST RAM for the _FRB cookie: */
+	0x42, 0x67,				/* clr.w -(a7) */
+	0x2f, 0x3c, 0x00, 0x01, 0x02, 0x00,	/* move.l    #65536+512,-(sp) */
+	0x3f, 0x3c, 0x00, 0x44,			/* move.w    #$44,-(sp) */
+	0x4e, 0x41,				/* trap      #1    ; Mxalloc */
+	0x50, 0x8f,				/* addq.l    #8,sp */
+	0x4a, 0x80,				/* tst.l     d0 */
+	0x67, 0x2c,				/* beq.s     extra_ram_end */
+	/* Align the buffer to a 512 byte boundary: */
+	0xd0, 0xbc, 0x00, 0x00, 0x01, 0xff,	/* add.l     #511,d0 */
+	0xc0, 0xbc, 0xff, 0xff, 0xfe, 0x00,	/* and.l     #$fffffe00,d0 */
+	/* Get cookie jar pointer and search for the end. Since we run this
+	 * with TOS 4.x only, we can assume that the jar is available and
+	 * that there is at least one entry in the jar already */
+	0x20, 0x78, 0x05, 0xa0,			/* move.l    $5a0.s,a0 */
+	/* jar_loop: */
+	0x0c, 0x98, 0x5f, 0x46, 0x52, 0x42,	/* cmp.l     #'_FRB',(a0)+ */
+	0x67, 0x14,				/* beq.s     extra_ram_end */
+	0x58, 0x88,				/* addaq.l   #4,a0 */
+	0x4a, 0x90,				/* tst.l     (a0) */
+	0x66, 0xf2,				/* bne.s     cj_loop */
+	/* We reached the end of the jar, so install our _FRB cookie here: */
+	0x20, 0xfc, 0x5f, 0x46, 0x52, 0x42,	/* move.l    #'_FRB',(a0)+ */
+	0x21, 0x50, 0x00, 0x08,			/* move.l    (a0),8(a0) */
+	0x20, 0xc0,				/* move.l    d0,(a0)+ */
+	0x42, 0x98,				/* clr.      (a0)+ ; jar end */
+	/* extra_ram_end:       ; The code we replaced at address $E0096E */
 	0x70, 0x03,				/* moveq     #3,d0 */
 	0x4e, 0xf9, 0x00, 0xe0, 0x0b, 0xd2	/* jmp       $e00bd2 */
 };
@@ -930,8 +961,9 @@ static void TOS_CheckSysConfig(void)
 	}
 	if (Config_IsMachineFalcon() && bUseVDIRes && !bIsEmuTOS)
 	{
-		Log_AlertDlg(LOG_ERROR, "Please use 512k EmuTOS instead of TOS v4 "
-			     "for proper extended VDI resolutions support on Falcon.");
+		Log_AlertDlg(LOG_ERROR, "VDI mode does not work with TOS v4 => disabled.\n"
+			     "Use 512k/1024k EmuTOS for VDI mode on Falcon.");
+		bUseVDIRes = false;
 	}
 }
 
@@ -1019,7 +1051,7 @@ static uint8_t *TOS_LoadImage(void)
 	}
 
 	/* Assert that machine type matches the TOS version.
-	 * 512k EmuTOS declares itself as TOS 2.x, but it can handle
+	 * 512k/1024k EmuTOS declares itself as TOS 2.x, but it can handle
 	 * all machine types, so it can & needs to be skipped here
 	 */
 	if (!bIsEmuTOS || TosSize < 512 * 1024)
@@ -1166,6 +1198,14 @@ int TOS_InitImage(void)
 		}
 		else
 		{
+			/* use VDI type supported by current machine */
+			if (ConfigureParams.Screen.nVdiColors > GEMCOLOR_16 &&
+			    !(Config_IsMachineFalcon() || Config_IsMachineTT()))
+			{
+				Log_AlertDlg(LOG_ERROR, "Only Falcon + TT support better than 16-color modes."
+					     " Switching to 16-color VDI mode.");
+				ConfigureParams.Screen.nVdiColors = GEMCOLOR_16;
+			}
 			/* needs to be called after TosVersion is set, but
 			 * before STMemory_SetDefaultConfig() is called
 			 */
@@ -1199,6 +1239,7 @@ int TOS_InitImage(void)
 			   countrycode, TOS_LanguageName(countrycode),
 			   (osconf & 1) ? "PAL" : "NTSC");
 	}
+	Keymap_SetCountry(countrycode);
 
 	/*
 	 * patch some values into the "Draw logo" patch.
@@ -1225,12 +1266,12 @@ int TOS_InitImage(void)
 		/* Load test program (has to be done after memory has been cleared) */
 		if (psTestPrg)
 		{
+			uint32_t dummy1, dummy2;
 			Log_Printf(LOG_DEBUG, "Loading '%s' to 0x%x.\n",
 			           psTestPrg, TEST_PRG_START);
-			if (GemDOS_LoadAndReloc(psTestPrg, TEST_PRG_BASEPAGE, true))
+			if (GemDOS_LoadAndReloc(psTestPrg, TEST_PRG_BASEPAGE, &dummy1, &dummy2, true))
 			{
-				fprintf(stderr, "Failed to load '%s'\n", psTestPrg);
-				exit(1);
+				Main_ErrorExit("Failed to load:", psTestPrg, 1);
 			}
 		}
 		else
@@ -1270,6 +1311,7 @@ static const struct {
 	{ TOS_LANG_RU,    "ru",    "Russia" },
 	{ TOS_LANG_GR,    "gr",    "Greece" },
 	{ TOS_LANG_RO,    "ro",    "Romania" },
+	{ TOS_LANG_CA,    "ca",    "Catalan" },
 };
 
 /**
@@ -1294,6 +1336,8 @@ void TOS_ShowCountryCodes(void)
 			fprintf(stderr, "\nEmuTOS 1024k supports also:\n");
 		if (countries[i].value == TOS_LANG_RO)
 			fprintf(stderr, "\nEmuTOS 1024k >1.2.1 also:\n");
+		if (countries[i].value == TOS_LANG_CA)
+			fprintf(stderr, "\nEmuTOS 1024k >1.3.0 also:\n");
 		fprintf(stderr, "- %s : %s\n",
 			countries[i].code, countries[i].name);
 	}

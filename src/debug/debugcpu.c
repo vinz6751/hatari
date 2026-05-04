@@ -40,7 +40,6 @@ const char DebugCpu_fileid[] = "Hatari debugcpu.c";
 
 
 #define MEMDUMP_COLS   16      /* memdump, number of bytes per row */
-#define NON_PRINT_CHAR '.'     /* character to display for non-printables */
 
 static uint32_t disasm_addr;     /* disasm address */
 static uint32_t memdump_addr;    /* memdump address */
@@ -449,7 +448,7 @@ static int DebugCpu_Profile(int nArgc, char *psArgs[])
 }
 
 /**
- * helper: return type width (b/c=1, w=2, l=4)
+ * Helper: return type width (b/c=1, w=2, l=4)
  */
 static unsigned get_type_width(char mode)
 {
@@ -469,7 +468,11 @@ static unsigned get_type_width(char mode)
 
 
 /**
- * helper: print <count> <size> sized memory items from <addr> in <base>
+ * Helper: print `count` `size` sized memory items from `addr` in `base`.
+ * @param addr    the start address
+ * @param count   the amount of items that should be printed
+ * @param size    the size of one item
+ * @param base    the number base
  */
 static void print_mem_values(uint32_t addr, int count, int size, int base)
 {
@@ -513,21 +516,16 @@ static void print_mem_values(uint32_t addr, int count, int size, int base)
 }
 
 /**
- * helper: print <count> bytes from Atari <addr> as host encoded chars
+ * Helper: print `count` bytes from Atari `addr` using
+ * user-configured conversion for host character conversion.
+ * @param addr   The ST RAM start address
+ * @param count  the amount of bytes that should get printed
  */
 static void print_mem_chars(uint32_t addr, uint8_t count)
 {
-	char host[4], st[2];
-	st[1] = '\0';
-
 	for (int i = 0; i < count; i++)
 	{
-		st[0] = STMemory_ReadByte(addr + i);
-		if ((unsigned)st[0] >= 32 &&
-		    Str_AtariToHost(st, host, sizeof(host), NON_PRINT_CHAR))
-			fprintf(debugOutput,"%s", host);
-		else
-			fputc(NON_PRINT_CHAR, debugOutput);
+		Str_PrintMemChar(debugOutput, STMemory_ReadByte(addr + i));
 	}
 }
 
@@ -625,7 +623,7 @@ int DebugCpu_MemDump(int nArgc, char *psArgs[])
 
 
 /**
- * helper: return type base (b=1, o=8, d=10, h=16)
+ * Helper: return type base (b=1, o=8, d=10, h=16)
  */
 static unsigned get_type_base(char mode)
 {
@@ -649,7 +647,7 @@ static unsigned get_type_base(char mode)
  */
 static int DebugCpu_Struct(int nArgc, char *psArgs[])
 {
-	uint32_t start, addr, count;
+	uint32_t start, addr, count, split;
 	int maxlen, offlen;
 
 	if (nArgc < 4)
@@ -670,9 +668,10 @@ static int DebugCpu_Struct(int nArgc, char *psArgs[])
 	addr = start;
 	for (int i = 3; i < nArgc; i++)
 	{
-		/* [name]:<type-char>[:count] */
-		const char *arg, *str;
+		/* [name]:<type-char>[:count[/split]] */
+		const char *arg, *str, *str2;
 		int size, type;
+		char buf[5];
 
 		arg = psArgs[i];
 		str = strchr(arg, ':');
@@ -711,9 +710,30 @@ static int DebugCpu_Struct(int nArgc, char *psArgs[])
 			return DEBUGGER_CMDDONE;
 		}
 
+		/* check split value that comes after count */
+		split = 0;
+		str2 = strchr(str, '/');
+		if (str2)
+		{
+			if (!Eval_Number(str2+1, &split, NUM_TYPE_NORMAL) || split > 127)
+			{
+				fprintf(stderr, "Invalid or too large split value for arg: '%s'!\n", arg);
+				return DEBUGGER_CMDDONE;
+			}
+			memcpy(buf, str, 3);
+			/* terminate count */
+			buf[str2-str] = '\0';
+			str = buf;
+		}
+
 		if (!Eval_Number(str, &count, NUM_TYPE_NORMAL) || count > 255)
 		{
-			fprintf(stderr, "Invalid count for arg: '%s'!\n", arg);
+			fprintf(stderr, "Invalid or too large count for arg: '%s'!\n", arg);
+			return DEBUGGER_CMDDONE;
+		}
+		if (split >= count)
+		{
+			fprintf(stderr, "Invalid count/split, count<=split: '%s'!\n", arg);
 			return DEBUGGER_CMDDONE;
 		}
 		addr += count*size;
@@ -747,10 +767,18 @@ static int DebugCpu_Struct(int nArgc, char *psArgs[])
 		else
 			str++;
 
-		if (*str)  /* ':' separator? */
-			Eval_Number(++str, &count, NUM_TYPE_NORMAL);
-		else
-			count = 1;
+		count = 1;
+		split = 0;
+		if (*str++)  /* ':' count separator? */
+		{
+			char *str2 = strchr(str, '/');
+			if (str2)
+			{
+				*str2++ = '\0';
+				Eval_Number(str2, &split, NUM_TYPE_NORMAL);
+			}
+			Eval_Number(str, &count, NUM_TYPE_NORMAL);
+		}
 
 		if (type == 's') /* skip */
 		{
@@ -765,24 +793,33 @@ static int DebugCpu_Struct(int nArgc, char *psArgs[])
 			fprintf(debugOutput, "+ $%0*x%*c: ",
 				offlen, addr-start, maxlen-offlen, ' ');
 
-		if (type == 'c')
+		if (split)
+			fprintf(debugOutput, "\n");
+
+		while (count > 0)
 		{
-			print_mem_chars(addr, count);
-			addr += count * size;
+			unsigned int cols = split;
+			if (!split || cols > count)
+				cols = count;
+			if (split)
+				fprintf(debugOutput, "  ");
+			if (type == 'c')
+				print_mem_chars(addr, cols);
+			else
+				print_mem_values(addr, cols, size, base);
+			fprintf(debugOutput, "\n");
+
+			addr += cols * size;
+			count -= cols;
 		}
-		else
-		{
-			print_mem_values(addr, count, size, base);
-			addr += count * size;
-		}
-		fprintf(debugOutput, "\n");
 	}
 
 	return DEBUGGER_CMDCONT;
 }
 
 
-/* helper to convert argument from host to Atari encoding.
+/**
+ * Helper: convert argument from host to Atari encoding.
  * returns false if argument could not be mapped completely,
  * or it maps to more than one Atari character.
  *
@@ -1274,7 +1311,9 @@ static int DebugCpu_Next(int nArgc, char *psArgv[])
 	return DEBUGGER_CMDDONE;
 }
 
-/* helper to get instruction type */
+/**
+ * Helper: get instruction type
+ */
 uint32_t DebugCpu_OpcodeType(void)
 {
 	/* cannot use OpcodeFamily like profiler does,
@@ -1429,7 +1468,7 @@ static const dbgcommand_t cpucommands[] =
 	  "[b|c|w|l] <start address>[-<end address>] <values>\n"
 	  "\tBy default values are interpreted as bytes, with 'c', 'w'\n"
 	  "\tor 'l', they're interpreted as chars/words/longs instead,\n"
-	  "\tand find is done for suitable aligned addresses.",
+	  "\tand find is done for correspondingly aligned addresses.",
 	  false },
 	{ DebugCpu_Profile, Profile_Match,
 	  "profile", "",
@@ -1454,11 +1493,12 @@ static const dbgcommand_t cpucommands[] =
 	  false },
 	{ DebugCpu_Struct, Symbols_MatchCpuDataAddress,
 	  "struct", "",
-	  "structured memory output for breakpoints",
-	  "<name> <address> [name]:<type>[base][:<count>] ...]\n\n"
+	  "structured memory output, e.g. for breakpoints",
+	  "<name> <address> [name]:<type>[base][:<count>[/<split>] ...]\n\n"
 	  "\tShow <name>d structure content at given <address>, with each\n"
-	  "\t[name]:<type>[base][:<count>] item shown on its own line, prefixed\n"
-	  "\twith offset from struct start address if [name] is not given.\n"
+	  "\t[name]:<type>[base][:<count>] arg output on its own line, prefixed\n"
+	  "\twith offset from struct start address, if [name] is not given.\n"
+	  "\tOutput uses multiple lines when type count <split> is given.\n"
 	  "\tSupported <type>s are 'b|c|w|l|s' (byte|char|word|long|skip).\n"
 	  "\tOptional [base] can be 'b|o|d|h' (bin|oct|dec|hex).\n"
 	  "\tDefaults are hex [base], and [count] of 1.\n",
@@ -1472,20 +1512,20 @@ static const dbgcommand_t cpucommands[] =
 	  "\t'w' or 'l' they will be done as words/longs instead.\n"
 	  "\t'c' can be used to provide byte values as chars.",
 	  false },
-	{ DebugCpu_LoadBin, NULL,
+	{ DebugCpu_LoadBin, Symbols_MatchCpuAddrFile,
 	  "loadbin", "l",
 	  "load a file into memory",
 	  "<filename> <address>\n"
 	  "\tLoad the file <filename> into memory starting at <address>.",
 	  false },
-	{ DebugCpu_SaveBin, NULL,
+	{ DebugCpu_SaveBin, Symbols_MatchCpuAddrFile,
 	  "savebin", "",
 	  "save memory to a file",
 	  "<filename> <address> <length>\n"
 	  "\tSave the memory block at <address> with given <length> to\n"
 	  "\tthe file <filename>.",
 	  false },
-	{ Symbols_Command, Symbols_MatchCommand,
+	{ Symbols_Command, Symbols_MatchCpuCommand,
 	  "symbols", "",
 	  "load CPU symbols & their addresses",
 	  Symbols_Description,

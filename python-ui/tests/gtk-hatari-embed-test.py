@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
+#
+# Copyright (C) 2018-2021 by Eero Tamminen
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 # To test Git version of Hatari, use something like:
 #   PATH=../../build/src:$PATH ./gtk-hatari-embed-test.py ...

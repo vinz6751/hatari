@@ -11,20 +11,19 @@
 */
 const char Configuration_fileid[] = "Hatari configuration.c";
 
-#include <SDL_keyboard.h>
-#include <SDL_joystick.h>
-
 #include "main.h"
 #include "configuration.h"
+#include "conv_st.h"
 #include "cfgopts.h"
 #include "audio.h"
 #include "sound.h"
 #include "file.h"
+#include "joy_ui.h"
+#include "keymap.h"
 #include "log.h"
 #include "m68000.h"
 #include "memorySnapShot.h"
 #include "paths.h"
-#include "screen.h"
 #include "statusbar.h"
 #include "vdi.h"
 #include "video.h"
@@ -34,7 +33,6 @@ const char Configuration_fileid[] = "Hatari configuration.c";
 #include "disasm.h"
 #include "fdc.h"
 #include "dsp.h"
-#include "joy.h"
 #include "falcon/crossbar.h"
 #include "stMemory.h"
 #include "tos.h"
@@ -69,8 +67,9 @@ static const struct Config_Tag configs_Debugger[] =
 	{ "nBacktraceLines", Int_Tag, &ConfigureParams.Debugger.nBacktraceLines },
 	{ "nExceptionDebugMask", Int_Tag, &ConfigureParams.Debugger.nExceptionDebugMask },
 	{ "nDisasmOptions", Int_Tag, &ConfigureParams.Debugger.nDisasmOptions },
+	{ "nMemConvLocale", Bool_Tag, &ConfigureParams.Debugger.bMemConvLocale },
 	{ "bDisasmUAE", Bool_Tag, &ConfigureParams.Debugger.bDisasmUAE },
-	{ "bSymbolsAutoLoad", Bool_Tag, &ConfigureParams.Debugger.bSymbolsAutoLoad },
+	{ "nSymbolsAutoLoad", Int_Tag, &ConfigureParams.Debugger.nSymbolsAutoLoad },
 	{ "bMatchAllSymbols", Bool_Tag, &ConfigureParams.Debugger.bMatchAllSymbols },
 	{ NULL , Error_Tag, NULL }
 };
@@ -81,7 +80,9 @@ static const struct Config_Tag configs_Screen[] =
 	{ "nMonitorType", Int_Tag, &ConfigureParams.Screen.nMonitorType },
 	{ "nFrameSkips", Int_Tag, &ConfigureParams.Screen.nFrameSkips },
 	{ "bFullScreen", Bool_Tag, &ConfigureParams.Screen.bFullScreen },
+#if !ENABLE_SDL3
 	{ "bKeepResolution", Bool_Tag, &ConfigureParams.Screen.bKeepResolution },
+#endif
 	{ "bResizable", Bool_Tag, &ConfigureParams.Screen.bResizable },
 	{ "bAllowOverscan", Bool_Tag, &ConfigureParams.Screen.bAllowOverscan },
 	{ "nSpec512Threshold", Int_Tag, &ConfigureParams.Screen.nSpec512Threshold },
@@ -100,6 +101,7 @@ static const struct Config_Tag configs_Screen[] =
 	{ "nZoomFactor", Float_Tag, &ConfigureParams.Screen.nZoomFactor },
 	{ "bUseSdlRenderer", Bool_Tag, &ConfigureParams.Screen.bUseSdlRenderer },
 	{ "ScreenShotFormat", Int_Tag, &ConfigureParams.Screen.ScreenShotFormat },
+	{ "szScreenShotDir", String_Tag, ConfigureParams.Screen.szScreenShotDir },
 	{ "bUseVsync", Bool_Tag, &ConfigureParams.Screen.bUseVsync },
 	{ NULL , Error_Tag, NULL }
 };
@@ -247,12 +249,19 @@ static const struct Config_Tag configs_Joystick5[] =
 /* Used to load/save keyboard options */
 static const struct Config_Tag configs_Keyboard[] =
 {
-	{ "bDisableKeyRepeat", Bool_Tag, &ConfigureParams.Keyboard.bDisableKeyRepeat },
+	{ "bFastForwardKeyRepeat", Bool_Tag, &ConfigureParams.Keyboard.bFastForwardKeyRepeat },
 	{ "nKeymapType", Int_Tag, &ConfigureParams.Keyboard.nKeymapType },
 	{ "nCountryCode", Int_Tag, &ConfigureParams.Keyboard.nCountryCode },
 	{ "nKbdLayout", Int_Tag, &ConfigureParams.Keyboard.nKbdLayout },
 	{ "nLanguage", Int_Tag, &ConfigureParams.Keyboard.nLanguage },
 	{ "szMappingFileName", String_Tag, ConfigureParams.Keyboard.szMappingFileName },
+	{ NULL , Error_Tag, NULL }
+};
+
+static bool bDisableKeyRepeat;
+static const struct Config_Tag configs_keyboard_old[] =
+{
+	{ "bDisableKeyRepeat", Bool_Tag, &bDisableKeyRepeat },
 	{ NULL , Error_Tag, NULL }
 };
 
@@ -419,27 +428,35 @@ static const struct Config_Tag configs_Scsi[] =
 	{ "bUseDevice0", Bool_Tag, &ConfigureParams.Scsi[0].bUseDevice },
 	{ "sDeviceFile0", String_Tag, ConfigureParams.Scsi[0].sDeviceFile },
 	{ "nBlockSize0", Int_Tag, &ConfigureParams.Scsi[0].nBlockSize },
+	{ "nScsiVersion0", Int_Tag, &ConfigureParams.Scsi[0].nScsiVersion },
 	{ "bUseDevice1", Bool_Tag, &ConfigureParams.Scsi[1].bUseDevice },
 	{ "sDeviceFile1", String_Tag, ConfigureParams.Scsi[1].sDeviceFile },
 	{ "nBlockSize1", Int_Tag, &ConfigureParams.Scsi[1].nBlockSize },
+	{ "nScsiVersion1", Int_Tag, &ConfigureParams.Scsi[1].nScsiVersion },
 	{ "bUseDevice2", Bool_Tag, &ConfigureParams.Scsi[2].bUseDevice },
 	{ "sDeviceFile2", String_Tag, ConfigureParams.Scsi[2].sDeviceFile },
 	{ "nBlockSize2", Int_Tag, &ConfigureParams.Scsi[2].nBlockSize },
+	{ "nScsiVersion2", Int_Tag, &ConfigureParams.Scsi[2].nScsiVersion },
 	{ "bUseDevice3", Bool_Tag, &ConfigureParams.Scsi[3].bUseDevice },
 	{ "sDeviceFile3", String_Tag, ConfigureParams.Scsi[3].sDeviceFile },
 	{ "nBlockSize3", Int_Tag, &ConfigureParams.Scsi[3].nBlockSize },
+	{ "nScsiVersion3", Int_Tag, &ConfigureParams.Scsi[3].nScsiVersion },
 	{ "bUseDevice4", Bool_Tag, &ConfigureParams.Scsi[4].bUseDevice },
 	{ "sDeviceFile4", String_Tag, ConfigureParams.Scsi[4].sDeviceFile },
 	{ "nBlockSize4", Int_Tag, &ConfigureParams.Scsi[4].nBlockSize },
+	{ "nScsiVersion4", Int_Tag, &ConfigureParams.Scsi[4].nScsiVersion },
 	{ "bUseDevice5", Bool_Tag, &ConfigureParams.Scsi[5].bUseDevice },
 	{ "sDeviceFile5", String_Tag, ConfigureParams.Scsi[5].sDeviceFile },
 	{ "nBlockSize5", Int_Tag, &ConfigureParams.Scsi[5].nBlockSize },
+	{ "nScsiVersion5", Int_Tag, &ConfigureParams.Scsi[5].nScsiVersion },
 	{ "bUseDevice6", Bool_Tag, &ConfigureParams.Scsi[6].bUseDevice },
 	{ "sDeviceFile6", String_Tag, ConfigureParams.Scsi[6].sDeviceFile },
 	{ "nBlockSize6", Int_Tag, &ConfigureParams.Scsi[6].nBlockSize },
+	{ "nScsiVersion6", Int_Tag, &ConfigureParams.Scsi[6].nScsiVersion },
 	{ "bUseDevice7", Bool_Tag, &ConfigureParams.Scsi[7].bUseDevice },
 	{ "sDeviceFile7", String_Tag, ConfigureParams.Scsi[7].sDeviceFile },
 	{ "nBlockSize7", Int_Tag, &ConfigureParams.Scsi[7].nBlockSize },
+	{ "nScsiVersion7", Int_Tag, &ConfigureParams.Scsi[7].nScsiVersion },
 	{ NULL , Error_Tag, NULL }
 };
 
@@ -594,10 +611,11 @@ void Configuration_SetDefault(void)
 	ConfigureParams.Debugger.nDisasmLines = -1; /* <0: use terminal size */
 	ConfigureParams.Debugger.nBacktraceLines = 0; /* <=0: show all */
 	ConfigureParams.Debugger.nExceptionDebugMask = DEFAULT_EXCEPTIONS;
+	ConfigureParams.Debugger.nSymbolsAutoLoad = SYM_AUTOLOAD_DEBUGGER;
+	ConfigureParams.Debugger.bMatchAllSymbols = false;
 	/* external one has nicer output, but isn't as complete as UAE one */
 	ConfigureParams.Debugger.bDisasmUAE = true;
-	ConfigureParams.Debugger.bSymbolsAutoLoad = true;
-	ConfigureParams.Debugger.bMatchAllSymbols = false;
+	ConfigureParams.Debugger.bMemConvLocale = false;
 	ConfigureParams.Debugger.nDisasmOptions = Disasm_GetOptions();
 	Disasm_Init();
 
@@ -651,6 +669,7 @@ void Configuration_SetDefault(void)
 		ConfigureParams.Scsi[i].bUseDevice = false;
 		strcpy(ConfigureParams.Scsi[i].sDeviceFile, psWorkingDir);
 		ConfigureParams.Scsi[i].nBlockSize = 512;
+		ConfigureParams.Scsi[i].nScsiVersion = 1;
 	}
 	/* IDE */
 	for (i = 0; i < MAX_IDE_DEVS; i++)
@@ -662,7 +681,7 @@ void Configuration_SetDefault(void)
 	}
 
 	/* Set defaults for Joysticks */
-	maxjoy = Joy_GetMaxId();
+	maxjoy = JoyUI_GetMaxId();
 	for (i = 0; i < JOYSTICK_COUNT; i++)
 	{
 		ConfigureParams.Joysticks.Joy[i].nJoystickMode = JOYSTICK_DISABLED;
@@ -671,23 +690,10 @@ void Configuration_SetDefault(void)
 		ConfigureParams.Joysticks.Joy[i].nJoyId = (i > maxjoy ? maxjoy : i);
 		for (int j = 0; j < JOYSTICK_BUTTONS; j++)
 			ConfigureParams.Joysticks.Joy[i].nJoyButMap[j] = j;
-		ConfigureParams.Joysticks.Joy[i].nKeyCodeUp = SDLK_UP;
-		ConfigureParams.Joysticks.Joy[i].nKeyCodeDown = SDLK_DOWN;
-		ConfigureParams.Joysticks.Joy[i].nKeyCodeLeft = SDLK_LEFT;
-		ConfigureParams.Joysticks.Joy[i].nKeyCodeRight = SDLK_RIGHT;
-		ConfigureParams.Joysticks.Joy[i].nKeyCodeFire = SDLK_RCTRL;
+		JoyUI_SetDefaultKeys(i);
 	}
 
-	for (i = 0; i <= 9; i++)
-		ConfigureParams.Joysticks.Joy[JOYID_JOYPADA].nKeyCodeNum[i] = SDLK_0 + i;
-	ConfigureParams.Joysticks.Joy[JOYID_JOYPADA].nKeyCodeB = SDLK_b;
-	ConfigureParams.Joysticks.Joy[JOYID_JOYPADA].nKeyCodeC = SDLK_c;
-	ConfigureParams.Joysticks.Joy[JOYID_JOYPADA].nKeyCodeOption = SDLK_o;
-	ConfigureParams.Joysticks.Joy[JOYID_JOYPADA].nKeyCodePause = SDLK_p;
-	ConfigureParams.Joysticks.Joy[JOYID_JOYPADA].nKeyCodeHash = SDLK_HASH;
-	ConfigureParams.Joysticks.Joy[JOYID_JOYPADA].nKeyCodeStar = SDLK_PLUS;
-
-	if (SDL_NumJoysticks() > 0)
+	if (JoyUI_NumJoysticks() > 0)
 	{
 		/* ST Joystick #1 is default joystick */
 		ConfigureParams.Joysticks.Joy[1].nJoyId = 0;
@@ -697,7 +703,7 @@ void Configuration_SetDefault(void)
 	}
 
 	/* Set defaults for Keyboard */
-	ConfigureParams.Keyboard.bDisableKeyRepeat = false;
+	ConfigureParams.Keyboard.bFastForwardKeyRepeat = true;
 	ConfigureParams.Keyboard.nKeymapType = KEYMAP_SYMBOLIC;
 	ConfigureParams.Keyboard.nCountryCode = TOS_LANG_UNKNOWN;
 	ConfigureParams.Keyboard.nKbdLayout = TOS_LANG_UNKNOWN;
@@ -705,32 +711,7 @@ void Configuration_SetDefault(void)
 	strcpy(ConfigureParams.Keyboard.szMappingFileName, "");
 
 	/* Set defaults for Shortcuts */
-	ConfigureParams.Shortcut.withoutModifier[SHORTCUT_OPTIONS] = SDLK_F12;
-	ConfigureParams.Shortcut.withoutModifier[SHORTCUT_FULLSCREEN] = SDLK_F11;
-	ConfigureParams.Shortcut.withoutModifier[SHORTCUT_PAUSE] = SDLK_PAUSE;
-
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_DEBUG] = SDLK_PAUSE;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_OPTIONS] = SDLK_o;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_FULLSCREEN] = SDLK_f;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_BORDERS] = SDLK_b;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_MOUSEGRAB] = SDLK_m;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_COLDRESET] = SDLK_c;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_WARMRESET] = SDLK_r;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_SCREENSHOT] = SDLK_g;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_BOSSKEY] = SDLK_i;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_CURSOREMU] = SDLK_j;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_FASTFORWARD] = SDLK_x;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_RECANIM] = SDLK_a;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_RECSOUND] = SDLK_y;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_SOUND] = SDLK_s;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_QUIT] = SDLK_q;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_LOADMEM] = SDLK_l;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_SAVEMEM] = SDLK_k;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_INSERTDISKA] = SDLK_d;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_JOY_0] = SDLK_F1;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_JOY_1] = SDLK_F2;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_PAD_A] = SDLK_F3;
-	ConfigureParams.Shortcut.withModifier[SHORTCUT_PAD_B] = SDLK_F4;
+	Keymap_InitShortcutDefaultKeys();
 
 	/* Set defaults for Memory */
 	ConfigureParams.Memory.STRamSize_KB = 1024;	/* 1 MiB */
@@ -804,6 +785,7 @@ void Configuration_SetDefault(void)
 #else
 	ConfigureParams.Screen.ScreenShotFormat = SCREEN_SNAPSHOT_BMP;
 #endif
+	ConfigureParams.Screen.szScreenShotDir[0] = '\0';
 
 	/* Set defaults for Sound */
 	ConfigureParams.Sound.bEnableMicrophone = true;
@@ -866,7 +848,8 @@ void Configuration_SetDefault(void)
 	ConfigureParams.Video.AviRecordFps = 0;			/* automatic FPS */
 	File_MakePathBuf(ConfigureParams.Video.AviRecordFile,
 	                 sizeof(ConfigureParams.Video.AviRecordFile),
-	                 psWorkingDir, "hatari", "avi");
+	                 Configuration_GetScreenShotDir(),
+			 "hatari", "avi");
 
 	/* Initialize the configuration file name */
 	if (File_MakePathBuf(sConfigFileName, sizeof(sConfigFileName),
@@ -937,7 +920,7 @@ void Configuration_Apply(bool bReset)
 		SdlAudioBufferSize = 100;		/* max of 100 ms */
 
 	/* Set playback frequency */
-	Audio_SetOutputAudioFreq(ConfigureParams.Sound.nPlaybackFreq);
+	Sound_SetOutputAudioFreq(ConfigureParams.Sound.nPlaybackFreq);
 
 	/* YM Mixing */
 	if ( ( ConfigureParams.Sound.YmVolumeMixing != YM_LINEAR_MIXING )
@@ -988,6 +971,11 @@ void Configuration_Apply(bool bReset)
 	File_CleanFileName(ConfigureParams.HardDisk.szHardDiskDirectories[0]);
 	File_MakeAbsoluteName(ConfigureParams.HardDisk.szHardDiskDirectories[0]);
 	File_MakeAbsoluteName(ConfigureParams.Memory.szMemoryCaptureFileName);
+	if (strlen(ConfigureParams.Screen.szScreenShotDir) > 0)
+	{
+		File_CleanFileName(ConfigureParams.Screen.szScreenShotDir);
+		File_MakeAbsoluteName(ConfigureParams.Screen.szScreenShotDir);
+	}
 	File_MakeAbsoluteName(ConfigureParams.Sound.szYMCaptureFileName);
 	if (strlen(ConfigureParams.Keyboard.szMappingFileName) > 0)
 		File_MakeAbsoluteName(ConfigureParams.Keyboard.szMappingFileName);
@@ -1072,6 +1060,7 @@ void Configuration_Load(const char *psFileName)
 		Log_Printf(LOG_DEBUG, "Configuration file %s not found.\n", psFileName);
 		return;
 	}
+	Log_Printf(LOG_DEBUG, "Loading configuration from: %s\n", psFileName);
 
 	/* Try to load information from old config files */
 	nOldMachineType = -1;
@@ -1095,6 +1084,10 @@ void Configuration_Load(const char *psFileName)
 		break;
 	}
 	Configuration_LoadSection(psFileName, configs_HardDisk_Old, "[HardDisk]");
+
+	Configuration_LoadSection(psFileName, configs_keyboard_old, "[Keyboard]");
+	if (bDisableKeyRepeat)
+		ConfigureParams.Keyboard.bFastForwardKeyRepeat = false;
 
 	/* Now the regular loading of the sections:
 	 * Start with Log so that logging works as early as possible */
@@ -1126,6 +1119,12 @@ void Configuration_Load(const char *psFileName)
 	Configuration_LoadSection(psFileName, configs_Midi, "[Midi]");
 	Configuration_LoadSection(psFileName, configs_System, "[System]");
 	Configuration_LoadSection(psFileName, configs_Video, "[Video]");
+
+	/* Some more legacy handling: */
+	if (ConfigureParams.Keyboard.nKeymapType >= KEYMAP_OLD_LOADED)
+	{
+		ConfigureParams.Keyboard.nKeymapType = KEYMAP_SYMBOLIC;
+	}
 }
 
 
@@ -1261,6 +1260,20 @@ void Configuration_MemorySnapShot_Capture(bool bSave)
 		Configuration_Apply(true);
 }
 
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Return pointer to screenshot directory string, either a user configured
+ * override directory, or the default (Hatari/OS) screenshot directory.
+ */
+const char* Configuration_GetScreenShotDir(void)
+{
+	if (ConfigureParams.Screen.szScreenShotDir[0])
+		return ConfigureParams.Screen.szScreenShotDir;
+	/* use default */
+	return Paths_GetDefaultScreenShotDir();
+}
 
 
 /*-----------------------------------------------------------------------*/

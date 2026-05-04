@@ -189,6 +189,7 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 	bool bReInitHdcEmu = false;
 	bool bReInitIDEEmu = false;
 	bool bReInitIoMem = false;
+	bool bReInitKeymap = false;
 	bool bScreenModeChange = false;
 	bool bReInitMidi = false;
 	bool bReInitPrinter = false;
@@ -390,6 +391,9 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 		bReInitMidi = true;
 	}
 
+	bReInitKeymap = strcmp(changed->Keyboard.szMappingFileName,
+	                       current->Keyboard.szMappingFileName);
+
 	/* Copy details to configuration,
 	 * so it can be saved out or set on reset
 	 */
@@ -411,7 +415,7 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 #endif
 
 	/* Set keyboard remap file */
-	if (ConfigureParams.Keyboard.nKeymapType == KEYMAP_LOADED)
+	if (bReInitKeymap)
 	{
 		Dprintf("- keymap<\n");
 		Keymap_LoadRemapFile(ConfigureParams.Keyboard.szMappingFileName);
@@ -534,6 +538,7 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 static bool Change_Options(int argc, const char *argv[])
 {
 	bool bOK;
+	int exitval;
 	CNF_PARAMS current;
 
 	Main_PauseEmulation(false);
@@ -541,7 +546,7 @@ static bool Change_Options(int argc, const char *argv[])
 	/* get configuration changes */
 	current = ConfigureParams;
 	ConfigureParams.Screen.bFullScreen = bInFullScreen;
-	bOK = Opt_ParseParameters(argc, argv);
+	bOK = Opt_ParseParameters(argc, argv, &exitval);
 
 	/* Check if reset is required and ask user if he really wants to continue */
 	if (bOK && Change_DoNeedReset(&current, &ConfigureParams)

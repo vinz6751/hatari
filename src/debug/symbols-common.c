@@ -1,7 +1,7 @@
 /*
  * Hatari - symbols-common.c
  *
- * Copyright (C) 2010-2023 by Eero Tamminen
+ * Copyright (C) 2010-2025 by Eero Tamminen
  * Copyright (C) 2017,2021,2023 by Thorsten Otto
  *
  * This file is distributed under the GNU General Public License, version 2
@@ -49,6 +49,7 @@ typedef struct {
 	int gccint;   /* GCC internal symbols */
 	int invalid;  /* invalid symbol types for addresses */
 	int locals;   /* unnamed / local symbols */
+	int noname;   /* symbols without a name */
 	int notypes;  /* explicitly disabled symbol types */
 	int undefined;/* undefined symbols */
 } ignore_counts_t;
@@ -374,7 +375,6 @@ static void symbol_list_free(symbol_list_t *list)
 	if (!list) {
 		return;
 	}
-	assert(list->namecount);
 	for (i = 0; i < list->namecount; i++) {
 		if (list->names[i].name_allocated) {
 			free(list->names[i].name);
@@ -484,7 +484,7 @@ static int read_pc_debug_names(FILE *fp, symbol_list_t *list, uint32_t offset)
 
 	if (fseek(fp, 0, SEEK_END) < 0)
 		return 0;
-	if ((filesize = ftell(fp)) < 0)
+	if ((long)(filesize = ftell(fp)) < 0)
 		return 0;
 	if (fseek(fp, 0, SEEK_SET) < 0)
 		return 0;
@@ -650,6 +650,11 @@ static bool ignore_symbol(const char *name, symtype_t symtype, const symbol_opts
 			return true;
 		}
 	}
+	if (!name[0]) {
+		counts->noname++;
+		return true;
+	}
+
 	return false;
 }
 
@@ -677,6 +682,9 @@ static void show_ignored(const ignore_counts_t *counts)
 	}
 	if (counts->locals) {
 		fprintf(stderr, "NOTE: ignored %d unnamed / local symbols ('.L*').\n", counts->locals);
+	}
+	if (counts->noname) {
+		fprintf(stderr, "NOTE: ignored %d unnamed symbols.\n", counts->noname);
 	}
 	if (counts->notypes) {
 		fprintf(stderr, "NOTE: ignored %d symbols with unwanted types.\n", counts->notypes);
@@ -1256,15 +1264,18 @@ static symbol_list_t* symbols_load_elf(FILE *fp, const prg_section_t *sections,
 					shdr = &headers[st_shndx];
 
 					if (shdr->sh_type == SHT_NOBITS) {
-						symtype = ELF_ST_BIND(st_info) == STB_WEAK ? SYMTYPE_WEAK : SYMTYPE_BSS;
+						symtype = SYMTYPE_BSS;
 						section = &(sections[2]);
 
 					} else if (shdr->sh_flags & SHF_EXECINSTR) {
+						/* symbol post-processing requirement:
+						 * only code symbols differentiated weak aliasing
+						 */
 						symtype = ELF_ST_BIND(st_info) == STB_WEAK ? SYMTYPE_WEAK : SYMTYPE_TEXT;
 						section = &(sections[0]);
 
 					} else {
-						symtype = ELF_ST_BIND(st_info) == STB_WEAK ? SYMTYPE_WEAK : SYMTYPE_DATA;
+						symtype = SYMTYPE_DATA;
 						section = &(sections[1]);
 					}
 				}
@@ -1281,6 +1292,11 @@ static symbol_list_t* symbols_load_elf(FILE *fp, const prg_section_t *sections,
 		default:
 			fprintf(stderr, "WARNING: ignoring symbol '%s' in slot %u of unknown type 0x%x.\n", name, (unsigned int)i, st_info);
 			ignore.invalid++;
+			continue;
+		}
+
+		/* whether to ignore symbol based on options and its name & type */
+		if (ignore_symbol(name, symtype, opts, &ignore)) {
 			continue;
 		}
 

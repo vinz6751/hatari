@@ -17,14 +17,31 @@
 #include "opencon.h"
 #include "../includes/configuration.h"
 
-
-void Win_OpenCon(void)
+static void Win_OpenInternal(void)
 {
-	if (ConfigureParams.Log.bConsoleWindow)
+	static bool opened;
+	if (opened)
+		return;
+	opened = true;
+
+	/* Fails if process already has a console, returns true on success:
+	 * https://learn.microsoft.com/en-us/windows/console/allocconsole
+	 */
+	if (AllocConsole())
 	{
-		AllocConsole();
 		freopen("CON", "w", stdout);
 		freopen("CON", "r", stdin);
 		freopen("CON", "w", stderr);
 	}
+}
+
+void Win_OpenCon(void)
+{
+	if (ConfigureParams.Log.bConsoleWindow)
+		Win_OpenInternal();
+}
+
+void Win_ForceCon(void)
+{
+	Win_OpenInternal();
 }

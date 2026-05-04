@@ -23,6 +23,13 @@ typedef struct
   bool bConsoleWindow;	/* for now, used just for Windows */
 } CNF_LOG;
 
+/* when to autoload program symbols */
+typedef enum
+{
+  SYM_AUTOLOAD_OFF = 0,
+  SYM_AUTOLOAD_DEBUGGER, /* When debugger invoked */
+  SYM_AUTOLOAD_EXEC,     /* When program loaded/relocated */
+} sym_autoload_t;
 
 /* debugger */
 typedef struct
@@ -35,11 +42,12 @@ typedef struct
   int nBacktraceLines;
   int nExceptionDebugMask;
   int nDisasmOptions;
-  bool bDisasmUAE;
-  /* load and free symbols for GEMDOS HD loaded programs automatically */
-  bool bSymbolsAutoLoad;
+  /* symbols autoloading for GEMDOS HD loaded programs */
+  sym_autoload_t nSymbolsAutoLoad;
   /* whether to match all symbols or just types relevant for given command */
   bool bMatchAllSymbols;
+  bool bMemConvLocale;
+  bool bDisasmUAE;
 } CNF_DEBUGGER;
 
 
@@ -100,12 +108,12 @@ typedef enum
 {
   KEYMAP_SYMBOLIC,  /* Use keymapping with symbolic (ASCII) key codes */
   KEYMAP_SCANCODE,  /* Use keymapping with PC keyboard scancodes */
-  KEYMAP_LOADED     /* Use keymapping with a map configuration file */
+  KEYMAP_OLD_LOADED /* Used for config file in former versions */
 } KEYMAPTYPE;
 
 typedef struct
 {
-  bool bDisableKeyRepeat;
+  bool bFastForwardKeyRepeat;
   KEYMAPTYPE nKeymapType;
   int nCountryCode;
   int nKbdLayout;
@@ -258,6 +266,7 @@ typedef struct
   bool bUseDevice;
   char sDeviceFile[FILENAME_MAX];
   int nBlockSize;
+  int nScsiVersion;
 } CNF_SCSIDEV;
 
 typedef enum
@@ -315,6 +324,7 @@ typedef struct
   bool bUseVsync;
   bool bUseSdlRenderer;
   int ScreenShotFormat;
+  char szScreenShotDir[FILENAME_MAX];
   float nZoomFactor;
   int nSpec512Threshold;
   int nVdiColors;
@@ -474,6 +484,7 @@ extern void Configuration_Apply(bool bReset);
 extern void Configuration_Load(const char *psFileName);
 extern void Configuration_Save(void);
 extern void Configuration_MemorySnapShot_Capture(bool bSave);
+extern const char* Configuration_GetScreenShotDir(void);
 extern void Configuration_ChangeCpuFreq ( int CpuFreq_new );
 #ifdef EMSCRIPTEN
 extern void Configuration_ChangeMemory(int RamSizeKb);
