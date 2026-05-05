@@ -230,7 +230,10 @@ void Dialog_KeyboardDlg(void)
 	/* Set up dialog from actual values: */
 	keyboarddlg[DLGKEY_SYMBOLIC].state &= ~SG_SELECTED;
 	keyboarddlg[DLGKEY_SCANCODE].state &= ~SG_SELECTED;
-	keyboarddlg[DLGKEY_SYMBOLIC+ConfigureParams.Keyboard.nKeymapType].state |= SG_SELECTED;
+	if (ConfigureParams.Keyboard.nKeymapType == KEYMAP_SCANCODE)
+		keyboarddlg[DLGKEY_SCANCODE].state |= SG_SELECTED;
+	else
+		keyboarddlg[DLGKEY_SYMBOLIC].state |= SG_SELECTED;
 
 	File_ShrinkName(dlgmapfile, ConfigureParams.Keyboard.szMappingFileName,
 	                keyboarddlg[DLGKEY_MAPNAME].w);

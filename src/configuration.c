@@ -1120,11 +1120,6 @@ void Configuration_Load(const char *psFileName)
 	Configuration_LoadSection(psFileName, configs_System, "[System]");
 	Configuration_LoadSection(psFileName, configs_Video, "[Video]");
 
-	/* Some more legacy handling: */
-	if (ConfigureParams.Keyboard.nKeymapType >= KEYMAP_OLD_LOADED)
-	{
-		ConfigureParams.Keyboard.nKeymapType = KEYMAP_SYMBOLIC;
-	}
 }
 
 

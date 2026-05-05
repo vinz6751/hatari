@@ -8,11 +8,26 @@
   pressed/released keys.  Based on Hatari configuration options,
   several different ways can be used to map SDL key events.
 
+  Supports upstream symbolic/scancode mapping and country layouts, simple
+  comma-separated host,guest keymap lines, and extended host specifications
+  (PC scancode | modifiers | mask -> chained ST scan codes).
+
+  Simple lines: host,guest
+    * Host: hexadecimal SDL PC scancode ([0-9a-fA-F]+ or 0x…); otherwise
+      SDL_GetKeyFromName (e.g. F1 — lowercase f1 is hex digits only).
+    * Guest: one hexadecimal ST scancode, OR a pipe-separated chain (same as
+      extended guest) if host is a hex PC scancode only — e.g. 25,LSHIFT|0d
+
+  Extended guest segments (pipe-separated): each hex ST scancode, or LSHIFT,
+  RSHIFT, ALTERNATE for convenience.
+
   See https://tho-otto.de/keyboards/ for the Atari ST keyboard layouts.
 */
 const char Keymap_fileid[] = "Hatari keymap.c";
 
 #include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
 #include "main.h"
 #include "keymap.h"
 #include "keymap_sdl.h"
@@ -34,9 +49,29 @@ const char Keymap_fileid[] = "Hatari keymap.c";
 /* if not able to map */
 #define ST_NO_SCANCODE 0xff
 
+#define KEYS_DOWN_MAPPING_SIZE 512
+
+#define MAX_ST_SCANCODES 4
+
+struct KeyMapping
+{
+	SDL_Keysym SdlKeysym;
+	SDL_Keymod modmask;
+	uint8_t STScanCodesLength;
+	uint8_t STScanCodes[MAX_ST_SCANCODES];
+	uint8_t PressedModifiers[MAX_ST_SCANCODES];
+};
+
+static struct KeyMapping LoadedKeyMap[KBD_MAX_SCANCODE];
+static int extended_mapping_count;
+
+static struct KeyMapping KeysDownMapping[KEYS_DOWN_MAPPING_SIZE];
+
 /* Table for loaded keys: */
 static int LoadedKeymap[KBD_MAX_SCANCODE][2];
-static bool keymap_loaded;
+/** Simple-map host matches SDL_Scancode if true, else SDL_Keycode */
+static bool LoadedKeymapHostIsScancode[KBD_MAX_SCANCODE];
+static bool simple_keymap_loaded;
 
 
 /**
@@ -595,27 +630,61 @@ static uint8_t Keymap_GetKeyPadScanCode(SDL_Keycode symkey)
 }
 
 
+/** LOG_TRACE: loaded keymap matched (enable with --trace keymap). */
+static void Keymap_TraceKeymapHit(const char *source,
+				  SDL_Scancode scancode, SDL_Keycode symkey,
+				  SDL_Keymod mod,
+				  const uint8_t *st_codes, unsigned int ncodes)
+{
+	unsigned int j;
+
+	LOG_TRACE(TRACE_KEYMAP,
+		  "keymap hit [%s]: scan=%d sym=%i mod=0x%x -> ",
+		  source, (int)scancode, symkey, (unsigned)mod);
+	for (j = 0; j < ncodes && j < MAX_ST_SCANCODES; j++)
+		LOG_TRACE(TRACE_KEYMAP, "%02x ", st_codes[j]);
+	LOG_TRACE(TRACE_KEYMAP, "(loaded keymap)\n");
+}
+
+/** LOG_TRACE: no loaded mapping matched this key event. */
+static void Keymap_TraceKeymapMiss(const char *source,
+				   SDL_Scancode scancode, SDL_Keycode symkey,
+				   SDL_Keymod mod)
+{
+	LOG_TRACE(TRACE_KEYMAP,
+		  "keymap miss [%s]: scan=%d sym=%i mod=0x%x\n",
+		  source, (int)scancode, symkey, (unsigned)mod);
+}
+
+
 /**
  * Remap SDL Key to ST Scan code
  */
 static uint8_t Keymap_RemapKeyToSTScanCode(SDL_Keycode symkey, SDL_Scancode scancode)
 {
 	/* Use loaded keymap? */
-	if (keymap_loaded)
+	if (simple_keymap_loaded)
 	{
 		int i;
 		for (i = 0; i < KBD_MAX_SCANCODE && LoadedKeymap[i][1] != 0; i++)
 		{
-			if (symkey == (SDL_Keycode)LoadedKeymap[i][0])
-				return LoadedKeymap[i][1];
+			bool match = LoadedKeymapHostIsScancode[i]
+				? ((int)scancode == LoadedKeymap[i][0])
+				: (symkey == (SDL_Keycode)LoadedKeymap[i][0]);
+			if (match)
+			{
+				uint8_t guest = LoadedKeymap[i][1];
+
+				Keymap_TraceKeymapHit("simple/remap", scancode, symkey,
+						      KMOD_NONE, &guest, 1);
+				return guest;
+			}
 		}
 	}
 
 	/* Check for keypad first so we can handle numlock */
 	if (symkey >= SDLK_KP_1 && symkey <= SDLK_KP_9)
-	{
 		return Keymap_GetKeyPadScanCode(symkey);
-	}
 
 	/* Remap from PC scancodes? */
 	if (ConfigureParams.Keyboard.nKeymapType == KEYMAP_SCANCODE)
@@ -641,35 +710,80 @@ static uint8_t Keymap_RemapKeyToSTScanCode(SDL_Keycode symkey, SDL_Scancode scan
 
 
 /**
+ * Parse a hexadecimal scan-code token (optional 0x / 0X). The entire token
+ * (after any prefix) must be hex digits. Value: 1 .. max_inclusive.
+ */
+static bool Keymap_ParseHexUint(const char *spec, long max_inclusive, int *out)
+{
+	const char *hex = spec;
+	char *endptr;
+	long v;
+	size_t i;
+
+	if (!spec || !*spec)
+		return false;
+
+	if (spec[0] == '0' && (spec[1] == 'x' || spec[1] == 'X'))
+	{
+		hex = spec + 2;
+		if (!*hex)
+			return false;
+	}
+
+	for (i = 0; hex[i]; i++)
+	{
+		if (!isxdigit((unsigned char)hex[i]))
+			return false;
+	}
+
+	v = strtol(hex, &endptr, 16);
+	if (*endptr != '\0' || v <= 0 || v > max_inclusive)
+		return false;
+	*out = (int)v;
+	return true;
+}
+
+
+/**
  * Fill host (PC) key based on host "spec" string.
  * Return true on success
  */
-static bool Keymap_ParseHostSpec(const char *spec, int *scancode)
+static bool Keymap_ParseHostSpec(const char *spec, int *host_val, bool *host_is_scancode)
 {
-	int key;
-	if (!spec)
+	if (!spec || !*spec)
 		return false;
 
-	key = atoi(spec);    /* Direct key code? */
-	if (key < 10)
+	*host_is_scancode = false;
+
+	if (Keymap_ParseHexUint(spec, KEYS_DOWN_MAPPING_SIZE - 1, host_val))
 	{
-		/* If it's not a valid number >= 10, then
-		 * assume we've got a symbolic key name
-		 */
-		int offset = 0;
-		/* quoted character (e.g. comment line char)? */
-		if (*spec == '\\' && strlen(spec) == 2)
-			offset = 1;
-		key = Keymap_GetKeyFromName(spec+offset);
+		*host_is_scancode = true;
+		return true;
 	}
-	if (key < 8)
+
+	/* SDL key name (left, Return, F1, ...) — token is not all-hex digits */
 	{
-		Log_Printf(LOG_WARN, "Invalid PC key: '%s' (%d >= 8)\n",
-			   spec, key);
-		return false;
+		int key = atoi(spec);    /* Direct key code? */
+		if (key < 10)
+		{
+			/* If it's not a valid number >= 10, then
+			 * assume we've got a symbolic key name
+			 */
+			int offset = 0;
+			/* quoted character (e.g. comment line char)? */
+			if (*spec == '\\' && strlen(spec) == 2)
+				offset = 1;
+			key = Keymap_GetKeyFromName(spec + offset);
+		}
+		if (key < 8)
+		{
+			Log_Printf(LOG_WARN, "Invalid PC key: '%s'\n", spec);
+			return false;
+		}
+		*host_val = key;
+		*host_is_scancode = false;
+		return true;
 	}
-	*scancode = key;
-	return true;
 }
 
 
@@ -679,19 +793,307 @@ static bool Keymap_ParseHostSpec(const char *spec, int *scancode)
  */
 static bool Keymap_ParseGuestSpec(const char *spec, int *scancode)
 {
-	int key;
-	if (!spec)
-		return false;
-
-	key = atoi(spec);
-	if (key <= 0 || key > KBD_MAX_SCANCODE)
+	if (!Keymap_ParseHexUint(spec, KBD_MAX_SCANCODE, scancode))
 	{
-		Log_Printf(LOG_WARN, "Invalid ST scancode: '%s' (0 > %d < %d)\n",
-			   spec, key, KBD_MAX_SCANCODE);
+		Log_Printf(LOG_WARN, "Invalid ST scancode (hex): '%s'\n", spec);
 		return false;
 	}
-	*scancode = key;
 	return true;
+}
+
+
+static SDL_Keymod SDLKeymodFromName(const char *name)
+{
+	static const struct {
+		SDL_Keymod mod;
+		const char *nm;
+	} keymodNames[] = {
+		{ KMOD_NONE, "KMOD_NONE" },
+		{ KMOD_LSHIFT, "KMOD_LSHIFT" },
+		{ KMOD_RSHIFT, "KMOD_RSHIFT" },
+		{ KMOD_LCTRL, "KMOD_LCTRL" },
+		{ KMOD_RCTRL, "KMOD_RCTRL" },
+		{ KMOD_LALT, "KMOD_LALT" },
+		{ KMOD_RALT, "KMOD_RALT" },
+		{ KMOD_LGUI, "KMOD_LGUI" },
+		{ KMOD_RGUI, "KMOD_RGUI" },
+		{ KMOD_NUM, "KMOD_NUM" },
+		{ KMOD_CAPS, "KMOD_CAPS" },
+		{ KMOD_MODE, "KMOD_MODE" },
+		{ KMOD_CTRL, "KMOD_CTRL" },
+		{ KMOD_SHIFT, "KMOD_SHIFT" },
+		{ KMOD_ALT, "KMOD_ALT" },
+		{ KMOD_GUI, "KMOD_GUI" },
+		{ 0, NULL }
+	};
+	int i;
+
+	for (i = 0; keymodNames[i].nm != NULL; i++)
+	{
+		if (strcmp(name, keymodNames[i].nm) == 0)
+			return keymodNames[i].mod;
+	}
+
+	LOG_TRACE(TRACE_KEYMAP, "SDLKeymodFromName: unknown \"%s\", using KMOD_NONE.\n", name);
+	return KMOD_NONE;
+}
+
+
+/**
+ * Parse extended host spec: hex-scancode [| modifier [| mask]]
+ * Returns 0 on failure, non-zero on success (matches legacy helper).
+ */
+static int HostSpecToSDLKeysym(const char *spec, struct KeyMapping* result)
+{
+	char buf[100];
+	char *token;
+	SDL_Scancode scancode;
+
+	strcpy(buf, spec);
+	result->SdlKeysym.mod = 0;
+	result->modmask = 0;
+
+	token = strtok(buf, "|");
+	if (token == NULL)
+		return 0;
+	{
+		int sc_int;
+		if (!Keymap_ParseHexUint(token, KEYS_DOWN_MAPPING_SIZE - 1, &sc_int))
+			return 0;
+		scancode = (SDL_Scancode)sc_int;
+	}
+
+	result->SdlKeysym.scancode = scancode;
+
+	token = strtok(NULL, "|");
+	if (token != NULL)
+	{
+		result->SdlKeysym.mod = SDLKeymodFromName(token);
+		token = strtok(NULL, "|");
+		if (token != NULL)
+			result->modmask = SDLKeymodFromName(token);
+	}
+
+	return -1;
+}
+
+
+static bool GuestSpec_ParseOneSegment(const char *start, uint8_t *scancode_out)
+{
+	int v;
+
+	if (!start || !*start)
+		return false;
+
+	if (Keymap_ParseHexUint(start, KBD_MAX_SCANCODE, &v))
+	{
+		*scancode_out = (uint8_t)v;
+		return true;
+	}
+
+	if (strcmp(start, "LSHIFT") == 0)
+	{
+		*scancode_out = ST_LSHIFT;
+		return true;
+	}
+	if (strcmp(start, "RSHIFT") == 0)
+	{
+		*scancode_out = ST_RSHIFT;
+		return true;
+	}
+	if (strcmp(start, "ALTERNATE") == 0)
+	{
+		*scancode_out = ST_ALTERNATE;
+		return true;
+	}
+	return false;
+}
+
+
+static int GuestSpecToSTScanCodes(const char *spec, struct KeyMapping* mapping)
+{
+	char buf[100];
+	char *start;
+	char *separator;
+	uint8_t *scancodes = mapping->STScanCodes;
+	int i = 0;
+
+	strcpy(buf, spec);
+	separator = buf - 1;
+	do
+	{
+		start = separator + 1;
+		separator = strchr(start, '|');
+		if (separator != NULL)
+			*separator = '\0';
+
+		if (!GuestSpec_ParseOneSegment(start, &scancodes[i]))
+		{
+			Log_Printf(LOG_ERROR, "GuestSpecToSTScanCodes: unknown '%s'\n", start);
+			i = 0;
+			break;
+		}
+
+		if (i >= MAX_ST_SCANCODES)
+			break;
+		i++;
+	} while (separator != NULL);
+
+	mapping->STScanCodesLength = (uint8_t)i;
+
+	return i > 0;
+}
+
+
+static bool InputMatchesKeyMapping(const SDL_Keysym* keySym, const struct KeyMapping *mapping)
+{
+	return keySym->scancode == mapping->SdlKeysym.scancode
+		&& (keySym->mod & mapping->modmask) == mapping->SdlKeysym.mod;
+}
+
+
+/** File-driven mapping chain (skip keypad; simple table then symbolic). */
+static bool Keymap_StrictMappingFileMode(void)
+{
+	return ConfigureParams.Keyboard.nKeymapType == KEYMAP_LOADED
+	       || extended_mapping_count > 0;
+}
+
+
+/**
+ * Build mapping for this key event into *out (multi ST codes supported).
+ */
+static void Keymap_FillKeysDownMapping(SDL_Keymod modkey, SDL_Keycode symkey,
+				       SDL_Scancode scancode, struct KeyMapping *out)
+{
+	SDL_Keysym ks;
+	uint8_t st;
+	bool strict_mode;
+
+	memset(out, 0, sizeof(*out));
+
+	ks.sym = symkey;
+	ks.scancode = scancode;
+	ks.mod = modkey;
+	strict_mode = Keymap_StrictMappingFileMode();
+
+	LOG_TRACE(TRACE_KEYMAP,
+		  "fill mapping: scan=%d sym=%i mod=0x%x type=%d strict=%d simple=%d extended=%d\n",
+		  (int)scancode, symkey, (unsigned)modkey,
+		  ConfigureParams.Keyboard.nKeymapType, strict_mode,
+		  simple_keymap_loaded ? 1 : 0, extended_mapping_count);
+
+	if (extended_mapping_count > 0)
+	{
+		int i;
+
+		for (i = 0; i < extended_mapping_count; i++)
+		{
+			if (!InputMatchesKeyMapping(&ks, &LoadedKeyMap[i]))
+				continue;
+			{
+				char tag[32];
+
+				snprintf(tag, sizeof(tag), "extended #%d", i);
+				Keymap_TraceKeymapHit(tag, scancode, symkey, modkey,
+						      LoadedKeyMap[i].STScanCodes,
+						      LoadedKeyMap[i].STScanCodesLength);
+			}
+			*out = LoadedKeyMap[i];
+			return;
+		}
+		Keymap_TraceKeymapMiss("extended table", scancode, symkey, modkey);
+	}
+
+	if (!strict_mode)
+	{
+		if (symkey >= SDLK_KP_1 && symkey <= SDLK_KP_9)
+		{
+			st = Keymap_GetKeyPadScanCode(symkey);
+			if (st != ST_NO_SCANCODE)
+			{
+				out->STScanCodes[0] = st;
+				out->STScanCodesLength = 1;
+				LOG_TRACE(TRACE_KEYMAP, "keymap hit [keypad]: %02x\n", st);
+			}
+			else
+			{
+				Keymap_TraceKeymapMiss("keypad", scancode, symkey, modkey);
+			}
+			return;
+		}
+	}
+
+	if (!strict_mode && ConfigureParams.Keyboard.nKeymapType == KEYMAP_SCANCODE)
+	{
+		st = Keymap_PcToStScanCode(scancode);
+		if (st != ST_NO_SCANCODE)
+		{
+			out->STScanCodes[0] = st;
+			out->STScanCodesLength = 1;
+			LOG_TRACE(TRACE_KEYMAP, "keymap hit [pc scancode]: %02x\n", st);
+			return;
+		}
+		if (symkey == 0)
+		{
+			Log_Printf(LOG_WARN, "Unhandled scancode 0x%x!\n", scancode);
+			return;
+		}
+	}
+	else if (strict_mode && ConfigureParams.Keyboard.nKeymapType == KEYMAP_SCANCODE)
+	{
+		LOG_TRACE(TRACE_KEYMAP,
+			  "strict keymap mode active: skipping pc scancode fallback\n");
+	}
+
+	if (strict_mode)
+	{
+		if (simple_keymap_loaded)
+		{
+			int i;
+
+			for (i = 0; i < KBD_MAX_SCANCODE && LoadedKeymap[i][1] != 0; i++)
+			{
+				bool match = LoadedKeymapHostIsScancode[i]
+					? ((int)scancode == LoadedKeymap[i][0])
+					: (symkey == (SDL_Keycode)LoadedKeymap[i][0]);
+				if (match)
+				{
+					uint8_t guest = LoadedKeymap[i][1];
+
+					Keymap_TraceKeymapHit("simple table", scancode, symkey,
+							      modkey, &guest, 1);
+					out->STScanCodes[0] = guest;
+					out->STScanCodesLength = 1;
+					return;
+				}
+			}
+			Keymap_TraceKeymapMiss("simple table", scancode, symkey, modkey);
+		}
+		st = Keymap_SymbolicToStScanCode(symkey);
+		if (st != ST_NO_SCANCODE)
+		{
+			LOG_TRACE(TRACE_KEYMAP, "keymap hit [symbolic strict fallback]: %02x\n", st);
+		}
+		else
+			Keymap_TraceKeymapMiss("symbolic strict fallback", scancode, symkey, modkey);
+	}
+	else
+	{
+		st = Keymap_RemapKeyToSTScanCode(symkey, scancode);
+		if (st != ST_NO_SCANCODE)
+		{
+			LOG_TRACE(TRACE_KEYMAP, "keymap hit [legacy remap path]: %02x\n", st);
+		}
+		else
+			Keymap_TraceKeymapMiss("legacy remap path", scancode, symkey, modkey);
+	}
+
+	if (st != ST_NO_SCANCODE)
+	{
+		out->STScanCodes[0] = st;
+		out->STScanCodesLength = 1;
+	}
 }
 
 
@@ -701,11 +1103,16 @@ static bool Keymap_ParseGuestSpec(const char *spec, int *scancode)
 void Keymap_LoadRemapFile(const char *pszFileName)
 {
 	FILE *in;
-	int idx, linenro, fails;
+	int linenro, fails;
+	int idx_simple = 0;
+	int idx_ext = 0;
 
 	/* Initialize table with default values */
 	memset(LoadedKeymap, 0, sizeof(LoadedKeymap));
-	keymap_loaded = false;
+	memset(LoadedKeymapHostIsScancode, 0, sizeof(LoadedKeymapHostIsScancode));
+	memset(LoadedKeyMap, 0, sizeof(LoadedKeyMap));
+	simple_keymap_loaded = false;
+	extended_mapping_count = 0;
 
 	if (!*pszFileName)
 		return;
@@ -724,21 +1131,11 @@ void Keymap_LoadRemapFile(const char *pszFileName)
 		return;
 	}
 
-	idx = linenro = fails = 0;
+	linenro = fails = 0;
 	while (!feof(in))
 	{
 		char *line, *saveptr, buf[1024];
 		const char *host, *guest;
-
-		if (idx >= ARRAY_SIZE(LoadedKeymap))
-		{
-			Log_Printf(LOG_WARN, "Mappings specified already for"
-				   "supported number (%d) of keys, skipping"
-				   "rest of '%s' at line %d\n",
-				   ARRAY_SIZE(LoadedKeymap), pszFileName, linenro);
-			fails++;
-			break;
-		}
 
 		/* Read line from file */
 		if (fgets(buf, sizeof(buf), in) == NULL)
@@ -754,31 +1151,117 @@ void Keymap_LoadRemapFile(const char *pszFileName)
 
 		/* get the host (PC) key spec */
 		host = Str_Trim(strtok_r(line, ",", &saveptr));
-		if (!Keymap_ParseHostSpec(host, &LoadedKeymap[idx][0]))
+		if (!host)
 		{
-			Log_Printf(LOG_WARN, "Failed to parse host (PC/SDL) part '%s' of line %d in: %s\n",
-				   host, linenro, pszFileName);
+			Log_Printf(LOG_WARN, "Keymap line %d missing host field in '%s'\n",
+				   linenro, pszFileName);
 			fails++;
 			continue;
 		}
 
 		/* Get the guest (ST) key spec */
 		guest = Str_Trim(strtok_r(NULL, "\n", &saveptr));
-		if (!Keymap_ParseGuestSpec(guest, &LoadedKeymap[idx][1]))
+		if (!guest || strlen(guest) == 0)
 		{
-			Log_Printf(LOG_WARN, "Failed to parse guest (ST) part '%s' of line %d in: %s\n",
-				   guest, linenro, pszFileName);
+			Log_Printf(LOG_WARN, "Keymap line %d missing guest field in '%s'\n",
+				   linenro, pszFileName);
 			fails++;
 			continue;
 		}
+
+		if (strchr(host, '|') != NULL)
+		{
+			if (idx_ext >= (int)ARRAY_SIZE(LoadedKeyMap))
+			{
+				Log_Printf(LOG_WARN, "Too many extended mappings in '%s'\n", pszFileName);
+				fails++;
+				break;
+			}
+			memset(&LoadedKeyMap[idx_ext], 0, sizeof(LoadedKeyMap[idx_ext]));
+			if (HostSpecToSDLKeysym(host, &LoadedKeyMap[idx_ext]) != -1
+			    || !GuestSpecToSTScanCodes(guest, &LoadedKeyMap[idx_ext]))
+			{
+				Log_Printf(LOG_WARN, "Extended keymap parse failed line %d in '%s'\n",
+					   linenro, pszFileName);
+				fails++;
+				memset(&LoadedKeyMap[idx_ext], 0, sizeof(LoadedKeyMap[idx_ext]));
+				continue;
+			}
+			idx_ext++;
+			LOG_TRACE(TRACE_KEYMAP, "extended host '%s' => guest '%s'\n", host, guest);
+			continue;
+		}
+
+		/* Simple hex PC host + chained ST guest (e.g. 37,LSHIFT|0d) */
+		if (strchr(guest, '|') != NULL)
+		{
+			int pc_scan;
+			struct KeyMapping *m;
+
+			if (idx_ext >= (int)ARRAY_SIZE(LoadedKeyMap))
+			{
+				Log_Printf(LOG_WARN, "Too many extended mappings in '%s'\n", pszFileName);
+				fails++;
+				break;
+			}
+
+			if (!Keymap_ParseHexUint(host, KEYS_DOWN_MAPPING_SIZE - 1, &pc_scan))
+			{
+				Log_Printf(LOG_WARN,
+					   "Keymap line %d in '%s': guest contains '|' but host '%s' must be a hex PC scancode\n",
+					   linenro, pszFileName, host);
+				fails++;
+				continue;
+			}
+
+			memset(&LoadedKeyMap[idx_ext], 0, sizeof(LoadedKeyMap[idx_ext]));
+			m = &LoadedKeyMap[idx_ext];
+			m->SdlKeysym.scancode = (SDL_Scancode)pc_scan;
+			m->SdlKeysym.mod = 0;
+			m->modmask = 0;
+
+			if (!GuestSpecToSTScanCodes(guest, m))
+			{
+				Log_Printf(LOG_WARN,
+					   "Chained guest parse failed line %d in '%s'\n",
+					   linenro, pszFileName);
+				fails++;
+				memset(&LoadedKeyMap[idx_ext], 0, sizeof(LoadedKeyMap[idx_ext]));
+				continue;
+			}
+
+			idx_ext++;
+			LOG_TRACE(TRACE_KEYMAP, "hex host + chained guest '%s' => '%s'\n", host, guest);
+			continue;
+		}
+
+		if (idx_simple >= (int)ARRAY_SIZE(LoadedKeymap))
+		{
+			Log_Printf(LOG_WARN, "Too many simple mappings in '%s'\n", pszFileName);
+			fails++;
+			break;
+		}
+
+		if (!Keymap_ParseHostSpec(host, &LoadedKeymap[idx_simple][0],
+					  &LoadedKeymapHostIsScancode[idx_simple])
+		    || !Keymap_ParseGuestSpec(guest, &LoadedKeymap[idx_simple][1]))
+		{
+			Log_Printf(LOG_WARN, "Simple keymap parse failed line %d in '%s'\n",
+				   linenro, pszFileName);
+			fails++;
+			continue;
+		}
+
+		idx_simple++;
 		LOG_TRACE(TRACE_KEYMAP, "key mapping from file: host %s => guest %s\n",
 			  host, guest);
-		idx += 1;
 	}
+
 	fclose(in);
 
-	if (idx > 0)
-		keymap_loaded = true;
+	if (idx_simple > 0)
+		simple_keymap_loaded = true;
+	extended_mapping_count = idx_ext;
 
 	if (fails)
 		Log_AlertDlg(LOG_ERROR, "%d keymap file parsing failures\n(see console log for details)", fails);
@@ -807,9 +1290,23 @@ static bool IsKeyTranslatable(SDL_Keycode symkey)
 /**
  * Is a shortcut modifier key pressed?
  */
-static bool Keymap_IsShortCutMod(int modkey)
+static bool Keymap_IsShortCutMod(SDL_Keymod modkey)
 {
 	return (modkey & (KMOD_RALT|KMOD_LGUI|KMOD_RGUI|KMOD_MODE)) != 0;
+}
+
+
+static bool IsSTModifier(uint8_t scancode)
+{
+	switch (scancode)
+	{
+	case ST_LSHIFT:
+	case ST_RSHIFT:
+	case ST_ALTERNATE:
+		return true;
+	default:
+		return false;
+	}
 }
 
 
@@ -818,7 +1315,10 @@ static bool Keymap_IsShortCutMod(int modkey)
  */
 void Keymap_KeyDown(SDL_Keymod modkey, SDL_Keycode symkey, SDL_Scancode scancode)
 {
-	uint8_t STScanCode;
+	struct KeyMapping *mapping;
+	uint8_t *modifiers;
+	unsigned ui_scancode;
+	int i;
 
 	LOG_TRACE(TRACE_KEYMAP, "key down: sym=%i scan=%i mod=0x%x name='%s'\n",
 	          symkey, scancode, modkey, Keymap_GetKeyName(symkey));
@@ -826,7 +1326,10 @@ void Keymap_KeyDown(SDL_Keymod modkey, SDL_Keycode symkey, SDL_Scancode scancode
 	if (symkey != SDLK_UNKNOWN)
 	{
 		if (ShortCut_CheckKeys(symkey, Keymap_IsShortCutMod(modkey), true))
+		{
+			LOG_TRACE(TRACE_KEYMAP, "key down ignored: shortcut consumed\n");
 			return;
+		}
 	}
 
 	if (!(modkey & KMOD_SHIFT))
@@ -834,24 +1337,52 @@ void Keymap_KeyDown(SDL_Keymod modkey, SDL_Keycode symkey, SDL_Scancode scancode
 		/* If using joystick emulation via keyboard, DON'T send keys to
 		 * keyboard processor - some games use keyboard as pause! */
 		if (Joy_KeyDown(symkey))
+		{
+			LOG_TRACE(TRACE_KEYMAP, "key down ignored: joystick emulation consumed\n");
 			return;
+		}
 	}
 
 	/* Ignore modifier keys that are not passed to the ST */
 	if (!IsKeyTranslatable(symkey))
-		return;
-
-	STScanCode = Keymap_RemapKeyToSTScanCode(symkey, scancode);
-	LOG_TRACE(TRACE_KEYMAP, "key map: sym=0x%x to ST-scan=0x%02x\n", symkey, STScanCode);
-	if (STScanCode != ST_NO_SCANCODE)
 	{
-		if (!Keyboard.KeyStates[STScanCode])
+		LOG_TRACE(TRACE_KEYMAP, "key down ignored: not translatable to ST\n");
+		return;
+	}
+
+	ui_scancode = (unsigned)scancode;
+	if (ui_scancode >= KEYS_DOWN_MAPPING_SIZE)
+	{
+		LOG_TRACE(TRACE_KEYMAP, "key down ignored: scancode %u outside mapping table\n", ui_scancode);
+		return;
+	}
+
+	mapping = &KeysDownMapping[ui_scancode];
+	Keymap_FillKeysDownMapping(modkey, symkey, scancode, mapping);
+
+	if (mapping->STScanCodesLength == 0)
+	{
+		LOG_TRACE(TRACE_KEYMAP, "key down: no ST mapping produced\n");
+		return;
+	}
+
+	modifiers = mapping->PressedModifiers;
+	for (i = 0; i < mapping->STScanCodesLength; i++)
+	{
+		uint8_t sc = mapping->STScanCodes[i];
+
+		Keyboard.KeyStates[sc]++;
+
+		if (IsSTModifier(sc))
+			*modifiers++ = sc;
+
+		if (Keyboard.KeyStates[sc] == 1)
 		{
 			/* Set down */
-			Keyboard.KeyStates[STScanCode] = true;
-			IKBD_PressSTKey(STScanCode, true);
+			IKBD_PressSTKey(sc, true);
 		}
 	}
+	*modifiers = 0;
 }
 
 
@@ -861,7 +1392,10 @@ void Keymap_KeyDown(SDL_Keymod modkey, SDL_Keycode symkey, SDL_Scancode scancode
  */
 void Keymap_KeyUp(SDL_Keymod modkey, SDL_Keycode symkey, SDL_Scancode scancode)
 {
-	uint8_t STScanCode;
+	struct KeyMapping *mapping;
+	uint8_t *modifier;
+	unsigned ui_scancode;
+	int i;
 
 	LOG_TRACE(TRACE_KEYMAP, "key up: sym=%i scan=%i mod=0x%x name='%s'\n",
 	          symkey, scancode, modkey, Keymap_GetKeyName(symkey));
@@ -870,7 +1404,10 @@ void Keymap_KeyUp(SDL_Keymod modkey, SDL_Keycode symkey, SDL_Scancode scancode)
 	if (symkey != SDLK_UNKNOWN)
 	{
 		if (ShortCut_CheckKeys(symkey, Keymap_IsShortCutMod(modkey), false))
+		{
+			LOG_TRACE(TRACE_KEYMAP, "key up ignored: shortcut consumed\n");
 			return;
+		}
 	}
 
 	if (!(modkey & KMOD_SHIFT))
@@ -878,24 +1415,62 @@ void Keymap_KeyUp(SDL_Keymod modkey, SDL_Keycode symkey, SDL_Scancode scancode)
 		/* If using keyboard emulation, DON'T send keys to keyboard
 		 * processor - some games use keyboard as pause! */
 		if (Joy_KeyUp(symkey))
+		{
+			LOG_TRACE(TRACE_KEYMAP, "key up ignored: joystick emulation consumed\n");
 			return;
+		}
 	}
 
 	/* Ignore modifier keys that are not passed to the ST */
 	if (!IsKeyTranslatable(symkey))
-		return;
-
-	STScanCode = Keymap_RemapKeyToSTScanCode(symkey, scancode);
-	/* Release key (only if was pressed) */
-	if (STScanCode != ST_NO_SCANCODE)
 	{
-		if (Keyboard.KeyStates[STScanCode])
+		LOG_TRACE(TRACE_KEYMAP, "key up ignored: not translatable to ST\n");
+		return;
+	}
+
+	ui_scancode = (unsigned)scancode;
+	if (ui_scancode >= KEYS_DOWN_MAPPING_SIZE)
+	{
+		LOG_TRACE(TRACE_KEYMAP, "key up ignored: scancode %u outside mapping table\n", ui_scancode);
+		return;
+	}
+
+	mapping = &KeysDownMapping[ui_scancode];
+	if (mapping->STScanCodesLength == 0)
+	{
+		LOG_TRACE(TRACE_KEYMAP, "key up: no stored mapping for scancode %u\n", ui_scancode);
+		return;
+	}
+
+	/* Release key (only if was pressed) */
+	for (i = 0; i < mapping->STScanCodesLength; i++)
+	{
+		uint8_t sc = mapping->STScanCodes[i];
+
+		if (IsSTModifier(sc) && mapping->STScanCodesLength > 1)
+			continue;
+
+		if (Keyboard.KeyStates[sc])
 		{
-			IKBD_PressSTKey(STScanCode, false);
-			Keyboard.KeyStates[STScanCode] = false;
+			Keyboard.KeyStates[sc]--;
+			IKBD_PressSTKey(sc, false);
 		}
 	}
+
+	modifier = mapping->PressedModifiers;
+	while (*modifier)
+	{
+		if (Keyboard.KeyStates[*modifier] != 0)
+		{
+			if (--Keyboard.KeyStates[*modifier] == 0)
+				IKBD_PressSTKey(*modifier, false);
+		}
+		modifier++;
+	}
+
+	memset(mapping, 0, sizeof(*mapping));
 }
+
 
 /*-----------------------------------------------------------------------*/
 /**
@@ -962,7 +1537,7 @@ const char *Keymap_GetKeyName(int keycode)
  */
 void Keymap_SetCountry(int countrycode)
 {
-	uint8_t (*func)(const SDL_Keycode keysym);
+	uint8_t (*func)(SDL_Keycode keysym);
 
 	/* Prefer keyboard layout selected by user */
 	if (ConfigureParams.Keyboard.nKbdLayout >= 0 &&
