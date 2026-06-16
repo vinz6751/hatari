@@ -108,7 +108,7 @@ typedef enum
 {
   KEYMAP_SYMBOLIC,  /* Use keymapping with symbolic (ASCII) key codes */
   KEYMAP_SCANCODE,  /* Use keymapping with PC keyboard scancodes */
-  KEYMAP_OLD_LOADED /* Used for config file in former versions */
+  KEYMAP_LOADED     /* Prefer entries from mapping file (simple and/or extended) */
 } KEYMAPTYPE;
 
 typedef struct
