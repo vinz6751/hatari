@@ -23,7 +23,7 @@
 #define	FLOPPY_IMAGE_TYPE_ST			1
 #define	FLOPPY_IMAGE_TYPE_MSA			2
 #define	FLOPPY_IMAGE_TYPE_DIM			3
-#define	FLOPPY_IMAGE_TYPE_IPF			4		/* handled by capsimage library */
+#define	FLOPPY_IMAGE_TYPE_IPF			4
 #define	FLOPPY_IMAGE_TYPE_STX			5
 #define	FLOPPY_IMAGE_TYPE_SCP			6
 #define	FLOPPY_IMAGE_TYPE_KFS			7		/* Kryoflux stream raw */
@@ -69,4 +69,5 @@ extern bool Floppy_ReadSectors(int Drive, uint8_t **pBuffer, uint16_t Sector, ui
 extern bool Floppy_WriteSectors(int Drive, uint8_t *pBuffer, uint16_t Sector, uint16_t Track, uint16_t Side, short Count, int *pnSectorsPerTrack, int *pSectorSize);
 extern bool Floppy_ImageIsMFM ( int ImageType );
 extern bool Floppy_ImageIsSTX ( int ImageType );
+extern bool Floppy_ImageIsST_MSA ( int ImageType );
 #endif

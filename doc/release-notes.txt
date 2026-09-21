@@ -41,6 +41,11 @@ Build / dependency changes:
 - More fine-grained build debug options
 
 Emulation improvements:
+- Floppy disks:
+  - Built-in support for IPF images (based on the decoder code from MAME).
+    There is no support for CTR images, and the code might have problems
+    with certain disk images, i.e. it is recommended to still use the
+    original capslib in case of problems.
 
 Emulator improvements:
 - CLI options:
@@ -56,6 +61,7 @@ Emulator improvements:
   - Hatari exits with return value 1 on option errors
   - Stricter validation of integer option values
 - SDL GUI:
+  - Fix: host mouse sync when window is left with mouse button pressed
   - Fix: allow exit from text edit mode when using just joystick
   - Fix: do not show recording in progress, if starting it failed
   - Audio + video recording functionality moved to its own dialog
@@ -98,7 +104,8 @@ Emulator improvements:
     Atari chars in memory output from the debugger commands, and
     for "--conout" output
   - Profiler skips "profile stats" output when entering debugger,
-    if it showed (there was data for) a backtrace
+    if it showed (there was data for) a backtrace, and does not
+    anymore print info on its internal workings
 - Symbols:
   - Always ignore unnamed symbols (= note instead of warnings)
   - Symbol autoloading loads all symbol types, not just TEXT symbols

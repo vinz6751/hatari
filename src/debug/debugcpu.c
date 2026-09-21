@@ -31,6 +31,7 @@ const char DebugCpu_fileid[] = "Hatari debugcpu.c";
 #include "stMemory.h"
 #include "str.h"
 #include "symbols.h"
+#include "stacktrace.h"
 #include "68kDisass.h"
 #include "console.h"
 #include "options.h"
@@ -1529,6 +1530,16 @@ static const dbgcommand_t cpucommands[] =
 	  "symbols", "",
 	  "load CPU symbols & their addresses",
 	  Symbols_Description,
+	  false },
+	{ StackTrace_Command, NULL,
+	  "backtrace", "bt",
+	  "stack backtrace using A6 frame pointer chain",
+	  "[max [fp]]\n"
+	  "\tWalk the A6 frame pointer chain and show call sites with symbols.\n"
+	  "\tFrame #0 is the current PC; further frames use return addresses\n"
+	  "\t(call site = return address - 2). <max> sets backtrace depth,\n"
+	  "\t'nBacktraceLines' is used otherwise (0 = 256 frame safety limit).\n"
+	  "\t<fp> value is the first frame pointer (default A6).\n",
 	  false },
 	{ DebugCpu_Step, NULL,
 	  "step", "s",

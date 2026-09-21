@@ -1868,6 +1868,11 @@ void flush_cpu_caches_040(uae_u16 opcode)
 	bool pushinv = (regs.cacr & 0x01000000) == 0; // 68060 DPI
 
 	flush_cpu_caches_040_2(cache, scope, addr, push, pushinv);
+#ifdef WITH_PPC
+	if (cache & 2) {
+		uae_ppc_mark_code_cache_dirty();
+	}
+#endif
 	mmu_flush_cache();
 }
 
@@ -4818,6 +4823,10 @@ static bool haltloop_do(int vsynctimeline, frame_time_t rpt_end, int lines)
 			ppc_interrupt(intlev());
 			uae_ppc_execute_check();
 #endif
+			if (regs.spcflags & SPCFLAG_CALLBACK) {
+				unset_special(SPCFLAG_CALLBACK);
+				device_call_main_thread_callbacks();
+			}
 			if (regs.spcflags & (SPCFLAG_BRK | SPCFLAG_MODE_CHANGE)) {
 				if (regs.spcflags & SPCFLAG_BRK) {
 					unset_special(SPCFLAG_BRK);
@@ -4837,6 +4846,11 @@ static bool haltloop_do(int vsynctimeline, frame_time_t rpt_end, int lines)
 			ppc_interrupt(intlev());
 			uae_ppc_execute_check();
 #endif
+			if (regs.spcflags & SPCFLAG_CALLBACK) {
+				unset_special(SPCFLAG_CALLBACK);
+				device_call_main_thread_callbacks();
+			}
+
 			if (event_wait)
 				break;
 			frame_time_t d = read_processor_time() - rpt_end;
@@ -5119,6 +5133,13 @@ static int do_specialties (int cycles)
 	if (spcflags & SPCFLAG_MODE_CHANGE)
 		return 1;
 	
+#ifndef WINUAE_FOR_HATARI
+	if (spcflags & SPCFLAG_CALLBACK) {
+		unset_special(SPCFLAG_CALLBACK);
+		device_call_main_thread_callbacks();
+	}
+#endif
+
 	while (spcflags & SPCFLAG_CPUINRESET) {
 		cpu_halt_clear();
 		x_do_cycles(4 * CYCLE_UNIT);
@@ -5801,10 +5822,15 @@ static void init_cpu_thread(void)
 
 extern addrbank *thread_mem_banks[MEMORY_BANKS];
 
+static bool is_cpu_thread(void)
+{
+	return cpu_thread_tid == uae_thread_get_id();
+}
+
 uae_u32 process_cpu_indirect_memory_read(uae_u32 addr, int size)
 {
 	// Do direct access if call is from filesystem etc thread 
-	if (cpu_thread_tid != uae_thread_get_id()) {
+	if (!is_cpu_thread()) {
 		uae_u32 data = 0;
 		addrbank *ab = thread_mem_banks[bankindex(addr)];
 		switch (size)
@@ -5833,7 +5859,7 @@ uae_u32 process_cpu_indirect_memory_read(uae_u32 addr, int size)
 
 void process_cpu_indirect_memory_write(uae_u32 addr, uae_u32 data, int size)
 {
-	if (cpu_thread_tid != uae_thread_get_id()) {
+	if (!is_cpu_thread()) {
 		addrbank *ab = thread_mem_banks[bankindex(addr)];
 		switch (size)
 		{
@@ -5997,7 +6023,7 @@ static void run_cpu_thread(void (*f)(void *))
 static void custom_reset_cpu(bool hardreset, bool keyboardreset)
 {
 #ifdef WITH_THREADED_CPU
-	if (cpu_thread_tid != uae_thread_get_id()) {
+	if (!is_cpu_thread()) {
 		custom_reset(hardreset, keyboardreset);
 		return;
 	}
@@ -7380,7 +7406,6 @@ static void cpu_thread_run_2(void *v)
 	struct regstruct *r = &regs;
 
 	cpu_thread_tid = uae_thread_get_id();
-
 	cpu_thread_active = 1;
 	while (!exit) {
 		TRY(prb)
@@ -7672,6 +7697,10 @@ void m68k_run(void)
 		currprefs.cpu_model < 68020 ? m68k_run_2_000 : m68k_run_2_020;
 
 	run_func();
+
+#ifdef WITH_THREADED_CPU
+	cpu_thread_tid = 0;
+#endif
 }
 
 void m68k_go (int may_quit)

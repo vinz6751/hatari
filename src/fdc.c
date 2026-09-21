@@ -699,6 +699,7 @@ typedef struct {
 	uint8_t		NextSector_ID_Field_CRC2;		/* Lower 8 bits of the CRC */
 	uint8_t		NextSector_ID_Field_CRC_OK;		/* CRC OK or not in the next ID Field after a call to FDC_NextSectorID_FdcCycles_ST() */
 	uint8_t		InterruptCond;				/* For a type IV force interrupt, contains the condition on the lower 4 bits */
+	uint64_t	CommandComplete_ClockCounter;		/* Value of CyclesGlobalClockCounter when a command complete */
 
 	int		EmulationMode;				/* FDC_EMULATION_MODE_INTERNAL or FDC_EMULATION_MODE_IPF */
 } FDC_STRUCT;
@@ -798,6 +799,7 @@ static uint32_t	FDC_DelayToFdcCycles ( uint32_t Delay_micro );
 static uint32_t	FDC_FdcCyclesToCpuCycles ( uint32_t FdcCycles );
 static uint32_t	FDC_CpuCyclesToFdcCycles ( uint32_t CpuCycles );
 static uint32_t	FDC_NsToFdcCycles ( uint32_t Time_ns );
+static uint32_t	FDC_FdcCyclesToNs ( uint32_t FdcCycles );
 static void	FDC_StartTimer_FdcCycles ( int FdcCycles , int InternalCycleOffset );
 static int	FDC_TransferByte_FdcCycles ( int NbBytes );
 static void	FDC_CRC16 ( uint8_t *buf , int nb , uint16_t *pCRC );
@@ -819,6 +821,7 @@ static void	FDC_IndexPulse_Init ( int Drive );
 static void	FDC_IndexPulse_Increase ( uint64_t IP_Time );
 static void	FDC_IndexPulse_Increase_Now ( void );
 
+static void	FDC_SetCommand ( int Command , int CommandState );
 static void	FDC_Update_STR ( uint8_t DisableBits , uint8_t EnableBits );
 static int	FDC_CmdCompleteCommon ( bool DoInt );
 static bool	FDC_VerifyTrack ( void );
@@ -868,12 +871,14 @@ static uint8_t	FDC_ReadAddress_ST ( uint8_t Drive , uint8_t Track , uint8_t Sect
 static uint8_t	FDC_ReadTrack_ST ( uint8_t Drive , uint8_t Track , uint8_t Side );
 static uint8_t	FDC_WriteTrack_ST ( uint8_t Drive , uint8_t Track , uint8_t Side , int TrackSize );
 
+static bool	FDC_CheckCurrentTrackIsLoaded_MFM ( int Drive );
 static int	FDC_LoadTrack_MFM ( int Drive , int Track , int Side );
 static void	FDC_AM_Detector_Reset ( void );
 static int	FDC_MFM_Process_Bit ( struct mfm_stream *s , bool Skip_Bit );
 static int	FDC_MFM_Process_MultiBits ( struct mfm_stream *s , uint16_t AM_Detector_Status_Mask , uint64_t *pTime_ns );
 static int	FDC_MFM_Process_MultiBits_Index ( struct mfm_stream *s , uint16_t AM_Detector_Status_Mask , uint64_t *pTime_ns ,  int *pFdcCycles , bool ReturnOnIndex );
 static uint8_t	FDC_NextIndexPulse_FdcCycles_MFM ( uint8_t Drive , uint8_t Track , uint8_t Side , int *pFdcCycles );
+static int	FDC_Skip_FdcCycles_MFM ( struct mfm_stream *s , uint32_t FdcCycles );
 static int	FDC_NextSectorID_FdcCycles_MFM ( uint8_t Drive , uint8_t NumberOfHeads , uint8_t Track , uint8_t Side , int *pFdcCycles );
 static uint8_t	FDC_NextSectorID_TR_MFM ( void );
 static uint8_t	FDC_NextSectorID_SR_MFM ( void );
@@ -1066,6 +1071,18 @@ uint32_t	FDC_NsToFdcCycles ( uint32_t Time_ns )
 
 	Cycles = rint ( (uint64_t)Time_ns * MachineClocks.FDC_Freq / 1000000000 );
 	return Cycles;
+}
+
+
+/*
+ * Convert  a number of fdc cycles into a duration in nanosec
+ */
+uint32_t	FDC_FdcCyclesToNs ( uint32_t FdcCycles )
+{
+	uint32_t	Time_ns;
+
+	Time_ns = rint ( (uint64_t)FdcCycles * 1000000000 / MachineClocks.FDC_Freq );
+	return Time_ns;;
 }
 
 
@@ -1525,6 +1542,7 @@ static int FDC_GetEmulationMode ( void )
 {
 	int	Mode;
 
+#ifdef HAVE_CAPSIMAGE
 	Mode = FDC.EmulationMode;				/* Default to previous mode if no drive is selected */
 
 	/* Check drive 1 first */
@@ -1550,6 +1568,9 @@ static int FDC_GetEmulationMode ( void )
 		else
 			Mode = FDC_EMULATION_MODE_INTERNAL;
 	}
+#else
+	Mode = FDC_EMULATION_MODE_INTERNAL;
+#endif
 
 	FDC.EmulationMode = Mode;
 //fprintf ( stderr , "emul mode %x %d\n" , PSGRegisters[PSG_REG_IO_PORTA] & 0x06 , Mode );
@@ -1850,6 +1871,10 @@ int	FDC_GetBytesPerTrack ( uint8_t Drive , uint8_t Track , uint8_t Side )
 			return FDC_GetBytesPerTrack_SCP ( Drive , Track , Side );
 		else if ( EmulationDrives[Drive].ImageType == FLOPPY_IMAGE_TYPE_KFS )
 			return FDC_GetBytesPerTrack_KFS ( Drive , Track , Side );
+#ifndef HAVE_CAPSIMAGE
+		else if ( EmulationDrives[Drive].ImageType == FLOPPY_IMAGE_TYPE_IPF )
+			return FDC_GetBytesPerTrack_IPF ( Drive , Track , Side );
+#endif
 
 		SectorsPerTrack = FDC_GetSectorsPerTrack ( Drive , FDC_DRIVES[ Drive ].HeadTrack , FDC.SideSignal );
 		if ( SectorsPerTrack >= 36 )
@@ -1983,6 +2008,10 @@ static uint32_t	FDC_GetCyclesPerRev_FdcCycles ( int Drive )
 		return FDC_GetCyclesPerRev_FdcCycles_SCP ( Drive , FDC_DRIVES[ Drive ].HeadTrack , FDC.SideSignal );
 	else if ( EmulationDrives[Drive].ImageType == FLOPPY_IMAGE_TYPE_KFS )
 		return FDC_GetCyclesPerRev_FdcCycles_KFS ( Drive , FDC_DRIVES[ Drive ].HeadTrack , FDC.SideSignal );
+#ifndef HAVE_CAPSIMAGE
+	else if ( EmulationDrives[Drive].ImageType == FLOPPY_IMAGE_TYPE_IPF )
+		return FDC_GetCyclesPerRev_FdcCycles_IPF ( Drive , FDC_DRIVES[ Drive ].HeadTrack , FDC.SideSignal );
+#endif
 
 	/* Assume a standard length for all tracks for ST/MSA images */
 	FdcCyclesPerRev = (uint64_t)(MachineClocks.FDC_Freq * 1000.L) / ( FDC_DRIVES[ Drive ].RPM / 60 );
@@ -2290,6 +2319,7 @@ void FDC_ClearHdcIRQ(void)
 	}
 }
 
+
 /*-----------------------------------------------------------------------*/
 /**
  * Handle the current FDC command.
@@ -2374,6 +2404,40 @@ void FDC_InterruptHandler_Update ( void )
 
 /*-----------------------------------------------------------------------*/
 /**
+ * Set a new command and its initial state
+ */
+static void FDC_SetCommand ( int Command , int CommandState )
+{
+	struct mfm_stream *s;
+	int64_t		CpuCyclesSinceComplete;
+
+//fprintf ( stderr , "set cmd dr=%d type=%d motor=%x %ld\n" , FDC.DriveSelSignal , EmulationDrives[ FDC.DriveSelSignal ].ImageType , FDC.STR & FDC_STR_BIT_MOTOR_ON , FDC.CommandComplete_ClockCounter );
+
+	if ( ( Command != FDCEMU_CMD_MOTOR_STOP )
+	  && ( FDC.DriveSelSignal >= 0 ) && Floppy_ImageIsMFM ( EmulationDrives[ FDC.DriveSelSignal ].ImageType )
+	  && ( FDC_CheckCurrentTrackIsLoaded_MFM ( FDC.DriveSelSignal ) ) )
+	{
+//fprintf ( stderr , "set cmd2 dr=%d motor=%x %ld\n" , FDC.DriveSelSignal , FDC.STR & FDC_STR_BIT_MOTOR_ON , FDC.CommandComplete_ClockCounter );
+		if ( ( ( FDC.STR & FDC_STR_BIT_MOTOR_ON ) != 0 )
+		&& ( FDC.CommandComplete_ClockCounter > 0 ) )
+		{
+			CpuCyclesSinceComplete = CyclesGlobalClockCounter - FDC.CommandComplete_ClockCounter;
+
+//fprintf ( stderr , "set cmd since=%ld\n" , CpuCyclesSinceComplete );
+
+			s = &(MFM_STREAMS[ FDC.DriveSelSignal ]);
+			FDC_Skip_FdcCycles_MFM ( s , CpuCyclesSinceComplete );
+//fprintf ( stderr , "set cmd since=%ld done\n" , CpuCyclesSinceComplete );
+		}
+	}
+
+	FDC.Command = Command;
+	FDC.CommandState = CommandState;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
  * Return the type of a command, based on the upper bits of CR
  */
 uint8_t FDC_GetCmdType ( uint8_t CR )
@@ -2425,8 +2489,8 @@ static int FDC_CmdCompleteCommon ( bool DoInt )
 	if ( DoInt )
 		FDC_SetIRQ ( FDC_IRQ_SOURCE_COMPLETE );
 
-	FDC.Command = FDCEMU_CMD_MOTOR_STOP;				/* Fake command to stop the motor */
-	FDC.CommandState = FDCEMU_RUN_MOTOR_STOP;
+	FDC_SetCommand( FDCEMU_CMD_MOTOR_STOP , FDCEMU_RUN_MOTOR_STOP );	/* Fake command to stop the motor */
+	FDC.CommandComplete_ClockCounter = CyclesGlobalClockCounter;
 	return FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
 }
 
@@ -2489,7 +2553,9 @@ static bool FDC_VerifyTrack ( void )
 	}
 
 	/* If disk image has only one side or drive is single sided and we're trying to verify on 2nd side, then return false */
+	/* (only for ST/MSA, other image types handle this themselves) */
 	if ( ( FDC.SideSignal == 1  )
+	  && Floppy_ImageIsST_MSA ( EmulationDrives[ FDC.DriveSelSignal ].ImageType )
 	  && ( ( FDC_GetSidesPerDisk ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ) != 2 )
 	    || ( FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads == 1 ) ) )
 	{
@@ -2533,7 +2599,7 @@ static int FDC_UpdateMotorStop ( void )
 	 case FDCEMU_RUN_MOTOR_STOP_WAIT:
 		if ( FDC.IndexPulse_Counter < FDC_DELAY_IP_MOTOR_OFF )
 		{
-//fprintf( stderr , "motor stop %d\n" , FDC.IndexPulse_Counter );
+//fprintf( stderr , "motor stop %d %lu\n" , FDC.IndexPulse_Counter , CyclesGlobalClockCounter );
 			FdcCycles = FDC_DELAY_CYCLE_REFRESH_INDEX_PULSE;	/* Wait for the correct number of IP */
 			break;
 		}
@@ -4056,8 +4122,7 @@ static int FDC_TypeI_Restore(void)
 		  nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to seek to track zero */
-	FDC.Command = FDCEMU_CMD_RESTORE;
-	FDC.CommandState = FDCEMU_RUN_RESTORE_SEEKTOTRACKZERO;
+	FDC_SetCommand ( FDCEMU_CMD_RESTORE , FDCEMU_RUN_RESTORE_SEEKTOTRACKZERO );
 
 	FDC_Update_STR ( FDC_STR_BIT_INDEX | FDC_STR_BIT_CRC_ERROR | FDC_STR_BIT_RNF , FDC_STR_BIT_BUSY );
 
@@ -4081,8 +4146,7 @@ static int FDC_TypeI_Seek ( void )
 		  nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to seek to chosen track */
-	FDC.Command = FDCEMU_CMD_SEEK;
-	FDC.CommandState = FDCEMU_RUN_SEEK_TOTRACK;
+	FDC_SetCommand ( FDCEMU_CMD_SEEK , FDCEMU_RUN_SEEK_TOTRACK );
 
 	FDC_Update_STR ( FDC_STR_BIT_INDEX | FDC_STR_BIT_CRC_ERROR | FDC_STR_BIT_RNF , FDC_STR_BIT_BUSY );
 
@@ -4106,8 +4170,7 @@ static int FDC_TypeI_Step ( void )
 		  nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to step (using same direction as latest seek executed, ie 'FDC.StepDirection') */
-	FDC.Command = FDCEMU_CMD_STEP;
-	FDC.CommandState = FDCEMU_RUN_STEP_ONCE;
+	FDC_SetCommand ( FDCEMU_CMD_STEP , FDCEMU_RUN_STEP_ONCE );
 
 	FDC_Update_STR ( FDC_STR_BIT_INDEX | FDC_STR_BIT_CRC_ERROR | FDC_STR_BIT_RNF , FDC_STR_BIT_BUSY );
 
@@ -4130,8 +4193,7 @@ static int FDC_TypeI_StepIn(void)
 		  nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to step in (direction = +1) */
-	FDC.Command = FDCEMU_CMD_STEP;
-	FDC.CommandState = FDCEMU_RUN_STEP_ONCE;
+	FDC_SetCommand ( FDCEMU_CMD_STEP , FDCEMU_RUN_STEP_ONCE );
 	FDC.StepDirection = 1;						/* Increment track*/
 
 	FDC_Update_STR ( FDC_STR_BIT_INDEX | FDC_STR_BIT_CRC_ERROR | FDC_STR_BIT_RNF , FDC_STR_BIT_BUSY );
@@ -4155,8 +4217,7 @@ static int FDC_TypeI_StepOut ( void )
 		  nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to step out (direction = -1) */
-	FDC.Command = FDCEMU_CMD_STEP;
-	FDC.CommandState = FDCEMU_RUN_STEP_ONCE;
+	FDC_SetCommand ( FDCEMU_CMD_STEP , FDCEMU_RUN_STEP_ONCE );
 	FDC.StepDirection = -1;						/* Decrement track */
 
 	FDC_Update_STR ( FDC_STR_BIT_INDEX | FDC_STR_BIT_CRC_ERROR | FDC_STR_BIT_RNF , FDC_STR_BIT_BUSY );
@@ -4189,8 +4250,7 @@ static int FDC_TypeII_ReadSector ( void )
 		  FDC_GetDMAAddress(), nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to read sector(s) */
-	FDC.Command = FDCEMU_CMD_READSECTORS;
-	FDC.CommandState = FDCEMU_RUN_READSECTORS_READDATA;
+	FDC_SetCommand ( FDCEMU_CMD_READSECTORS , FDCEMU_RUN_READSECTORS_READDATA );
 
 	FDC_Update_STR ( FDC_STR_BIT_DRQ | FDC_STR_BIT_LOST_DATA | FDC_STR_BIT_CRC_ERROR
 		| FDC_STR_BIT_RNF | FDC_STR_BIT_RECORD_TYPE | FDC_STR_BIT_WPRT , FDC_STR_BIT_BUSY );
@@ -4215,8 +4275,7 @@ static int FDC_TypeII_WriteSector ( void )
 		  FDC_GetDMAAddress(), nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to write a sector(s) */
-	FDC.Command = FDCEMU_CMD_WRITESECTORS;
-	FDC.CommandState = FDCEMU_RUN_WRITESECTORS_WRITEDATA;
+	FDC_SetCommand ( FDCEMU_CMD_WRITESECTORS , FDCEMU_RUN_WRITESECTORS_WRITEDATA );
 
 	FDC_Update_STR ( FDC_STR_BIT_DRQ | FDC_STR_BIT_LOST_DATA | FDC_STR_BIT_CRC_ERROR
 		| FDC_STR_BIT_RNF | FDC_STR_BIT_RECORD_TYPE , FDC_STR_BIT_BUSY );
@@ -4248,8 +4307,7 @@ static int FDC_TypeIII_ReadAddress ( void )
 		  nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to seek to track zero */
-	FDC.Command = FDCEMU_CMD_READADDRESS;
-	FDC.CommandState = FDCEMU_RUN_READADDRESS;
+	FDC_SetCommand ( FDCEMU_CMD_READADDRESS , FDCEMU_RUN_READADDRESS );
 
 	FDC_Update_STR ( FDC_STR_BIT_DRQ | FDC_STR_BIT_LOST_DATA | FDC_STR_BIT_CRC_ERROR
 		| FDC_STR_BIT_RNF | FDC_STR_BIT_RECORD_TYPE | FDC_STR_BIT_WPRT , FDC_STR_BIT_BUSY );
@@ -4273,8 +4331,7 @@ static int FDC_TypeIII_ReadTrack ( void )
 		  nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to read a single track */
-	FDC.Command = FDCEMU_CMD_READTRACK;
-	FDC.CommandState = FDCEMU_RUN_READTRACK;
+	FDC_SetCommand ( FDCEMU_CMD_READTRACK , FDCEMU_RUN_READTRACK );
 
 	FDC_Update_STR ( FDC_STR_BIT_DRQ | FDC_STR_BIT_LOST_DATA | FDC_STR_BIT_CRC_ERROR
 		| FDC_STR_BIT_RNF | FDC_STR_BIT_RECORD_TYPE | FDC_STR_BIT_WPRT , FDC_STR_BIT_BUSY );
@@ -4298,8 +4355,7 @@ static int FDC_TypeIII_WriteTrack ( void )
 		  nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 	/* Set emulation to write a single track */
-	FDC.Command = FDCEMU_CMD_WRITETRACK;
-	FDC.CommandState = FDCEMU_RUN_WRITETRACK;
+	FDC_SetCommand ( FDCEMU_CMD_WRITETRACK , FDCEMU_RUN_WRITETRACK );
 
 	FDC_Update_STR ( FDC_STR_BIT_DRQ | FDC_STR_BIT_LOST_DATA | FDC_STR_BIT_CRC_ERROR
 		| FDC_STR_BIT_RNF | FDC_STR_BIT_RECORD_TYPE | FDC_STR_BIT_WPRT , FDC_STR_BIT_BUSY );
@@ -5722,6 +5778,37 @@ int mfm_stream_next_bytes(struct mfm_stream *s, void *p, unsigned int bytes)
 
 
 /*
+ * Skip as many flux as needed to reach a total of FdcCycles
+ * NOTE : this doesn't update the index counter which can gives problem
+ * later when calling FDC_MFM_Process_MultiBits.
+ * For now, use FDC_Skip_FdcCycles_MFM() instead
+ */
+
+int mfm_stream_skip ( struct mfm_stream *s , uint32_t FdcCycles )
+{
+	uint64_t	Time_ns;
+	uint64_t	Total_ns;
+	int		Flux_ns;
+
+	Time_ns = FDC_FdcCyclesToNs ( FdcCycles );
+//fprintf ( stderr , "mfm_stream_skip fdc_cycles=%d time_ns=%lu\n" , FdcCycles , Time_ns );
+
+	Total_ns = 0;
+	while ( Total_ns < Time_ns )
+	{
+		Flux_ns = s->type.next_flux(s);
+		s->flux = 0;
+		if ( Flux_ns < 0 )
+			return -1;
+//fprintf ( stderr , "mfm_stream_skip fdc_cycles=%d flux=%d time_ns=%lu\n" , FdcCycles , Flux_ns , Time_ns );
+		Total_ns += Flux_ns;
+	}
+
+	return 0;
+}
+
+
+/*
  * libdisk's PLL is similar to an analog PLL
  */
 
@@ -5787,7 +5874,7 @@ if ( FDC_DEBUG_MFM_BIT ) fprintf ( stdout , "flux next bit 2 : lat=%"PRIu64" flu
  *
  * NOTE : there's no full reverse engineering of the WD1772 at this time,
  * so the DPLL method used is not known. But some analyses are considering
- * that the DPLL in the WS1772 is based on this patent.
+ * that the DPLL in the WD1772 is based on this patent.
  *
  * The DPLL used in Hatari is a direct implementation of the patent US4808884,
  * including the window's length, phase and frequency correction, ...
@@ -6356,8 +6443,24 @@ static int mfm_flux_next_bit(struct mfm_stream *s)
 }
 
 
+/*
+ * In MFM mode, check if the track at the head position on the current side
+ * is already loaded or not
+ */
 
-int	FDC_LoadTrack_MFM ( int Drive , int Track , int Side )
+static bool	FDC_CheckCurrentTrackIsLoaded_MFM ( int Drive )
+{
+	if ( ( FDC_DRIVES[ Drive ].Loaded_Track == FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack )
+	  && ( FDC_DRIVES[ Drive ].Loaded_Side == FDC.SideSignal ) )
+	{
+		return true;
+	}
+
+	return false;
+}
+
+
+static int	FDC_LoadTrack_MFM ( int Drive , int Track , int Side )
 {
 	int		res;
 
@@ -6402,7 +6505,6 @@ static void	FDC_AM_Detector_Reset ( void )
 
 
 
-
 #define	FDC_AM_DET_STATUS_SYNC_A1	(1<<0)
 #define	FDC_AM_DET_STATUS_SYNC_C2	(1<<1)
 #define	FDC_AM_DET_STATUS_SYNC_A1_X3	(1<<2)
@@ -6412,7 +6514,6 @@ static void	FDC_AM_Detector_Reset ( void )
 #define	FDC_AM_DET_MODE_OFF		0		/* AM Det is OFF */
 #define	FDC_AM_DET_MODE_ALWAYS_ON	1		/* AM Det is always ON (eg "read track") */
 #define	FDC_AM_DET_MODE_AUTO_OFF	2		/* AM Det is ON and goes OFF when AM is found */
-
 
 
 /*
@@ -6824,7 +6925,7 @@ static uint8_t	FDC_NextIndexPulse_FdcCycles_MFM ( uint8_t Drive , uint8_t Track 
 		StatusMask = FDC_AM_DET_STATUS_DR_READY;
 		Res = FDC_MFM_Process_MultiBits_Index ( s , StatusMask , &Time_ns , &FdcCycles , true );
 
-		if ( Res != FDCEMU_RETURN_OK )
+		if ( Res == FDCEMU_RETURN_NO_MORE_MFM_DATA )
 			return FDC_STR_BIT_RNF;
 
 		/* If an Index pulse is received then we exit */
@@ -6836,6 +6937,37 @@ static uint8_t	FDC_NextIndexPulse_FdcCycles_MFM ( uint8_t Drive , uint8_t Track 
 	return 0;
 }
 
+
+
+static int	FDC_Skip_FdcCycles_MFM ( struct mfm_stream *s , uint32_t FdcCycles )
+{
+	uint64_t	Time_ns;
+	uint16_t	StatusMask;
+	int		Res;
+	int		cycles;
+
+//fprintf (stderr , "fdc skip mfm %d\n" , FdcCycles);
+
+	FDC.AM_Detector_Mode = FDC_AM_DET_MODE_ALWAYS_ON;
+
+	Time_ns = 0;
+
+	while ( FdcCycles < FDC_NsToFdcCycles ( Time_ns ) )
+	{
+		StatusMask = FDC_AM_DET_STATUS_DR_READY;
+		Res = FDC_MFM_Process_MultiBits_Index ( s , StatusMask , &Time_ns , &cycles , true );
+
+		if ( Res == FDCEMU_RETURN_NO_MORE_MFM_DATA )
+			return FDC_STR_BIT_RNF;
+
+		/* If an Index pulse is received then we exit */
+		if ( FDC.AM_Detector_Status & FDC_AM_DET_STATUS_INDEX_PULSE )
+			break;
+	}
+
+//fprintf (stderr , "fdc skip mfm done %d\n" , FdcCycles);
+	return 0;
+}
 
 
 static int	FDC_NextSectorID_FdcCycles_MFM ( uint8_t Drive , uint8_t NumberOfHeads , uint8_t Track , uint8_t Side , int *pFdcCycles )

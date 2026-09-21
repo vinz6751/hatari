@@ -15,7 +15,7 @@ extern bool	KFS_FileNameIsKFS ( const char *pszFileName, bool bAllowGZ );
 extern uint8_t	*KFS_ReadDisk ( int Drive, const char *pszFileName, long *pImageSize, int *pImageType );
 extern bool	KFS_WriteDisk ( int Drive, const char *pszFileName, uint8_t *pBuffer, int ImageSize );
 
-extern bool	KFS_Insert ( int Drive , const char *FilenameKFS , uint8_t *pImageBuffer , long ImageSize );
+extern bool	KFS_Insert ( int Drive , const char *FilenameKFS , const char *PathInArchive , uint8_t *pImageBuffer , long ImageSize );
 extern bool	KFS_Eject ( int Drive );
 
 extern int	FDC_GetBytesPerTrack_KFS ( uint8_t Drive , uint8_t Track , uint8_t Side );
@@ -30,8 +30,17 @@ extern uint32_t	FDC_GetCyclesPerRev_FdcCycles_KFS ( uint8_t Drive , uint8_t Trac
  * based on code by Keir Fraser https://github.com/keirf/Disk-Utilities
  */
 
+typedef struct
+{
+	unsigned int file_pos;
+	unsigned int stream_pos;
+	unsigned int sample_counter;
+	unsigned int index_counter;
+} kfs_index;
+
+
 struct kfs_stream {
-	int Drive;		/* Drive number 0 or 1 used for this stream */
+	int Drive;			/* Drive number 0 or 1 used for this stream */
 
 	/* Current track number. */
 	unsigned int track;
@@ -41,11 +50,14 @@ struct kfs_stream {
 	unsigned int datsz;
 
 	/* Index positions in the raw stream. */
-	unsigned int *idxs;
-	unsigned int idx_i;
+	kfs_index *indexes_array;
+	int index_count;
 
-	unsigned int dat_idx;    /* current index into dat[] */
-	unsigned int stream_idx; /* current index into non-OOB data in dat[] */
+	int idx_i;
+
+	unsigned int dat_idx;   	/* current index into dat[] */
+	unsigned int stream_idx;	/* current index into non-OOB data in dat[] */
+	unsigned int stream_next_index;	/* next index position */
 };
 
 /*

@@ -35,6 +35,13 @@ const char Profile_fileid[] = "Hatari profile.c";
 #include "m68000.h"
 #include "dsp.h"
 
+#define DEBUG 0
+#if DEBUG
+#define Dprintf(...) fprintf(__VA_ARGS__)
+#else
+#define Dprintf(...)
+#endif
+
 profile_loop_t profile_loop;
 
 #define CALLER_SEPARATOR ','
@@ -186,9 +193,7 @@ void Profile_ShowCallers(FILE *fp, int sites, callee_t *callsite, const char * (
 		}
 		fputs("\n", fp);
 		if (total) {
-#if DEBUG
-			fprintf(stderr, "WARNING: %llu differences in call and instruction counts for '%s'!\n", total, name);
-#endif
+			Dprintf(stderr, "WARNING: %lu differences in call and instruction counts for '%s'!\n", total, name);
 			countdiff += total;
 			countissues++;
 		}
@@ -462,14 +467,21 @@ void Profile_FinalizeCalls(uint32_t pc, callinfo_t *callinfo, counters_t *totalc
 {
 	const char *sym, *caller;
 	uint32_t sym_addr, caller_addr;
-	int i, lines, offset;
+	int i, lines, offset, width;
 	bool dots;
 	char sign;
 
 	if (!callinfo->depth) {
 		return;
 	}
-	fprintf(stderr, "Finalizing costs for %d non-returned functions:\n", callinfo->depth);
+	Dprintf(stderr, "Finalizing costs for %d non-returned functions.\n", callinfo->depth);
+
+	if (ConfigureParams.System.bAddressSpace24) {
+		width = 6;
+	} else {
+		width = 8;
+	}
+	fprintf(stderr, "Profiler backtrace:\n");
 
 	i = 0;
 	dots = false;
@@ -488,7 +500,7 @@ void Profile_FinalizeCalls(uint32_t pc, callinfo_t *callinfo, counters_t *totalc
 		 */
 		if (i >= 32 && callinfo->depth > 32) {
 			if (!dots) {
-				fprintf(stderr, "- ...\n");
+				fprintf(stderr, " ...\n");
 				dots = true;
 			}
 		} else {
@@ -498,10 +510,11 @@ void Profile_FinalizeCalls(uint32_t pc, callinfo_t *callinfo, counters_t *totalc
 			if (sym) {
 				offset = caller_addr - sym_addr;
 				sign = offset >= 0 ? '+' : '-';
-				fprintf(stderr, "- %d. 0x%06x: %s %c0x%x",
-					i, caller_addr, sym, sign, abs(offset));
+				fprintf(stderr, "#%-2d 0x%0*x: %s %c0x%x",
+					i, width, caller_addr, sym, sign, abs(offset));
 			} else {
-				fprintf(stderr, "- %d. 0x%06x", i, caller_addr);
+				fprintf(stderr, "#%-2d 0x%0*x",
+					i, width, caller_addr);
 			}
 
 			sym_addr = caller_addr;
@@ -527,7 +540,7 @@ static void Profile_ShowStack(bool forDsp)
 	const char *(*get_caller)(uint32_t*);
 	const char *(*get_symbol)(uint32_t, symtype_t);
 	uint32_t sym_addr, caller_addr;
-	int i, offset, depth, top;
+	int i, offset, depth, top, width;
 	callinfo_t *callinfo;
 
 	if (forDsp) {
@@ -538,8 +551,14 @@ static void Profile_ShowStack(bool forDsp)
 		caller_addr = M68000_GetPC();
 	}
 	if (!callinfo->depth) {
-		fprintf(stderr, "Empty stack.\n");
+		fprintf(stderr, "Profiler call stack has no unprocessed data.\n");
 		return;
+	}
+
+	if (ConfigureParams.System.bAddressSpace24) {
+		width = 6;
+	} else {
+		width = 8;
 	}
 
 	depth = callinfo->depth;
@@ -549,6 +568,7 @@ static void Profile_ShowStack(bool forDsp)
 	} else {
 		top = 0;
 	}
+
 	i = 0;
 	while (depth-- > top) {
 		i++;
@@ -558,10 +578,10 @@ static void Profile_ShowStack(bool forDsp)
 		sym = get_symbol(sym_addr, SYMTYPE_CODE);
 		if (sym) {
 			char sign = offset >= 0 ? '+' : '-';
-			fprintf(stderr, "- %d. 0x%06x: %s %c0x%x",
-				i, caller_addr, sym, sign, abs(offset));
+			fprintf(stderr, "#%-2d 0x%0*x: %s %c0x%x",
+				i, width, caller_addr, sym, sign, abs(offset));
 		} else {
-			fprintf(stderr, "- %d. 0x%06x", i, caller_addr);
+			fprintf(stderr, "#%-2d 0x%0*x", i, width, caller_addr);
 		}
 
 		sym_addr = caller_addr;
@@ -587,7 +607,7 @@ int Profile_AllocCallinfo(callinfo_t *callinfo, int count, const char *name)
 		/* alloc & clear new data */
 		callinfo->site = calloc(count, sizeof(callee_t));
 		if (callinfo->site) {
-			fprintf(stderr, "Allocated %s profile callsite buffer for %d symbols.\n", name, count);
+			Dprintf(stderr, "Allocated %s profile callsite buffer for %d symbols.\n", name, count);
 			callinfo->prev_pc = callinfo->return_pc = PC_UNDEFINED;
 		} else {
 			fprintf(stderr, "ERROR: callsite buffer alloc failed!\n");

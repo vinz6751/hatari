@@ -526,6 +526,7 @@ bool Floppy_InsertDiskIntoDrive(int Drive)
 	long	nImageBytes = 0;
 	char	*filename;
 	int	ImageType = FLOPPY_IMAGE_TYPE_NONE;
+	const char *PathInArchive = NULL;
 
 	/* Eject disk, if one is inserted (doesn't inform user) */
 	assert(Drive >= 0 && Drive < MAX_FLOPPYDRIVES);
@@ -559,8 +560,8 @@ bool Floppy_InsertDiskIntoDrive(int Drive)
 		EmulationDrives[Drive].pBuffer = KFS_ReadDisk(Drive, filename, &nImageBytes, &ImageType);
 	else if (Archive_FileNameIsSupported(filename))
 	{
-		const char *zippath = ConfigureParams.DiskImage.szDiskZipPath[Drive];
-		EmulationDrives[Drive].pBuffer = Archive_ReadDisk(Drive, filename, zippath, &nImageBytes, &ImageType);
+		PathInArchive = ConfigureParams.DiskImage.szDiskZipPath[Drive];
+		EmulationDrives[Drive].pBuffer = Archive_ReadDisk(Drive, filename, PathInArchive, &nImageBytes, &ImageType);
 	}
 
 	if ( (EmulationDrives[Drive].pBuffer == NULL) || ( ImageType == FLOPPY_IMAGE_TYPE_NONE ) )
@@ -608,7 +609,7 @@ bool Floppy_InsertDiskIntoDrive(int Drive)
 	/* For Kryoflux streams, call specific function to handle the inserted image */
 	else if ( ImageType == FLOPPY_IMAGE_TYPE_KFS )
 	{
-		if ( KFS_Insert ( Drive , filename , EmulationDrives[Drive].pBuffer , nImageBytes ) == false )
+		if ( KFS_Insert ( Drive , filename , PathInArchive , EmulationDrives[Drive].pBuffer , nImageBytes ) == false )
 		{
 			free ( EmulationDrives[Drive].pBuffer );
 			EmulationDrives[Drive].pBuffer = NULL;
@@ -1037,6 +1038,11 @@ bool	Floppy_ImageIsMFM ( int ImageType )
 	  || ( ImageType == FLOPPY_IMAGE_TYPE_KFS ) )
 		return true;
 
+#ifndef HAVE_CAPSIMAGE
+	if (ImageType == FLOPPY_IMAGE_TYPE_IPF)
+		return true;
+#endif
+
 	return false;
 }
 
@@ -1051,3 +1057,20 @@ bool	Floppy_ImageIsSTX ( int ImageType )
 
 	return false;
 }
+
+
+/*
+ * Same for formats where only sectors' content is stored (ST, MSA, DIM)
+ */
+bool	Floppy_ImageIsST_MSA ( int ImageType )
+{
+	if ( ( ImageType == FLOPPY_IMAGE_TYPE_ST )
+	  || ( ImageType == FLOPPY_IMAGE_TYPE_MSA )
+	  || ( ImageType == FLOPPY_IMAGE_TYPE_DIM ) )
+		return true;
+
+	return false;
+}
+
+
+
