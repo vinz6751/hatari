@@ -12,7 +12,7 @@ const char DlgKeyboard_fileid[] = "Hatari dlgKeyboard.c";
 #include "configuration.h"
 #include "dialog.h"
 #include "sdlgui.h"
-#include "file.h"
+#include "filename.h"
 #include "str.h"
 #include "keymap.h"
 
@@ -235,7 +235,7 @@ void Dialog_KeyboardDlg(void)
 	else
 		keyboarddlg[DLGKEY_SYMBOLIC].state |= SG_SELECTED;
 
-	File_ShrinkName(dlgmapfile, ConfigureParams.Keyboard.szMappingFileName,
+	FileName_Shrink(dlgmapfile, ConfigureParams.Keyboard.szMappingFileName,
 	                keyboarddlg[DLGKEY_MAPNAME].w);
 	keyboarddlg[DLGKEY_MAPNAME].txt = dlgmapfile;
 
